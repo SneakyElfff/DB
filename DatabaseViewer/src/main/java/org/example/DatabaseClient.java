@@ -3,15 +3,11 @@ package org.example;
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
+import java.awt.event.*;
 import java.io.*;
 import java.net.Socket;
-import java.sql.Date;
 import java.util.*;
-import javax.swing.*;
 import javax.swing.table.TableModel;
-import java.awt.*;
 import java.util.List;
 import java.util.Vector;
 
@@ -22,6 +18,8 @@ public class DatabaseClient extends JFrame {
     private boolean is_ascending = true;
     private JComboBox<String> columns_list;
     private JTextField search_field;
+    private JMenu file_menu;
+    private JButton search_button;
 
     public DatabaseClient() {
         setTitle("Travel Agency Database");
@@ -33,7 +31,7 @@ public class DatabaseClient extends JFrame {
         JMenuBar menu_bar = new JMenuBar();
         setJMenuBar(menu_bar);
 
-        JMenu file_menu = new JMenu("Edit");
+        file_menu = new JMenu("Edit");
         menu_bar.add(file_menu);
 
         JMenuItem add_item = new JMenuItem("Add data...");
@@ -90,7 +88,7 @@ public class DatabaseClient extends JFrame {
 
         columns_list = new JComboBox<>();
         search_field = new JTextField();
-        JButton search_button = new JButton("Search");
+        search_button = new JButton("Search");
         search_button.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
@@ -113,6 +111,67 @@ public class DatabaseClient extends JFrame {
         add(scroll_panel, BorderLayout.CENTER);
 
         loadTables();
+        addKeyListeners();
+    }
+
+    private void addKeyListeners() {
+        file_menu.addKeyListener(new KeyAdapter() {
+            @Override
+            public void keyPressed(KeyEvent e) {
+                handleArrowKeys(e, tables_list, search_button);
+                if (e.getKeyCode() == KeyEvent.VK_ENTER) {
+                    file_menu.doClick();
+                }
+            }
+        });
+
+        tables_list.addKeyListener(new KeyAdapter() {
+            @Override
+            public void keyPressed(KeyEvent e) {
+                handleArrowKeys(e, table_db, file_menu);
+            }
+        });
+
+        table_db.addKeyListener(new KeyAdapter() {
+            @Override
+            public void keyPressed(KeyEvent e) {
+                handleArrowKeys(e, columns_list, tables_list);
+            }
+        });
+
+        columns_list.addKeyListener(new KeyAdapter() {
+            @Override
+            public void keyPressed(KeyEvent e) {
+                handleArrowKeys(e, search_field, table_db);
+            }
+        });
+
+        search_field.addKeyListener(new KeyAdapter() {
+            @Override
+            public void keyPressed(KeyEvent e) {
+                handleArrowKeys(e, search_button, columns_list);
+            }
+        });
+
+        search_button.addKeyListener(new KeyAdapter() {
+            @Override
+            public void keyPressed(KeyEvent e) {
+                handleArrowKeys(e, file_menu, search_field);
+                if (e.getKeyCode() == KeyEvent.VK_ENTER) {
+                    search_button.doClick();
+                }
+            }
+        });
+    }
+
+    private void handleArrowKeys(KeyEvent e, JComponent next, JComponent previous) {
+        if (e.isShiftDown()) {
+            if (e.getKeyCode() == KeyEvent.VK_RIGHT) {
+                next.requestFocus();
+            } else if (e.getKeyCode() == KeyEvent.VK_LEFT) {
+                previous.requestFocus();
+            }
+        }
     }
 
     private void loadTables() {
