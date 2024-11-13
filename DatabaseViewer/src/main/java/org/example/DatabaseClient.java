@@ -112,23 +112,25 @@ public class DatabaseClient extends JFrame {
 
         loadTables();
         addKeyListeners();
+
+        List<Component> focusableComponents = new ArrayList<>();
+        focusableComponents.add(file_menu);
+        focusableComponents.add(tables_list);
+        focusableComponents.add(table_db);
+        focusableComponents.add(columns_list);
+        focusableComponents.add(search_field);
+        focusableComponents.add(search_button);
+
+        setFocusTraversalPolicy(new CustomFocusTraversalPolicy(focusableComponents));
     }
 
     private void addKeyListeners() {
         file_menu.addKeyListener(new KeyAdapter() {
             @Override
             public void keyPressed(KeyEvent e) {
-                handleArrowKeys(e, tables_list, search_button);
                 if (e.getKeyCode() == KeyEvent.VK_ENTER) {
                     file_menu.doClick();
                 }
-            }
-        });
-
-        tables_list.addKeyListener(new KeyAdapter() {
-            @Override
-            public void keyPressed(KeyEvent e) {
-                handleArrowKeys(e, table_db, file_menu);
             }
         });
 
@@ -136,30 +138,6 @@ public class DatabaseClient extends JFrame {
             @Override
             public void keyPressed(KeyEvent e) {
                 handleArrowKeys(e, columns_list, tables_list);
-            }
-        });
-
-        columns_list.addKeyListener(new KeyAdapter() {
-            @Override
-            public void keyPressed(KeyEvent e) {
-                handleArrowKeys(e, search_field, table_db);
-            }
-        });
-
-        search_field.addKeyListener(new KeyAdapter() {
-            @Override
-            public void keyPressed(KeyEvent e) {
-                handleArrowKeys(e, search_button, columns_list);
-            }
-        });
-
-        search_button.addKeyListener(new KeyAdapter() {
-            @Override
-            public void keyPressed(KeyEvent e) {
-                handleArrowKeys(e, file_menu, search_field);
-                if (e.getKeyCode() == KeyEvent.VK_ENTER) {
-                    search_button.doClick();
-                }
             }
         });
     }
@@ -306,9 +284,38 @@ public class DatabaseClient extends JFrame {
             }
         }
 
-        int result = JOptionPane.showConfirmDialog(this, inputPanel, "Enter new row data",
-                JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        JButton okButton = new JButton("OK");
+        JButton cancelButton = new JButton("Cancel");
 
+        JOptionPane optionPane = new JOptionPane(inputPanel, JOptionPane.PLAIN_MESSAGE, JOptionPane.OK_CANCEL_OPTION, null, new Object[] {okButton, cancelButton});
+        JDialog dialog = optionPane.createDialog(this, "Enter new row data");
+
+        dialog.getRootPane().setDefaultButton(null);
+
+        okButton.addActionListener(e -> optionPane.setValue(JOptionPane.OK_OPTION));
+        cancelButton.addActionListener(e -> optionPane.setValue(JOptionPane.CANCEL_OPTION));
+
+        okButton.addKeyListener(new KeyAdapter() {
+            @Override
+            public void keyPressed(KeyEvent e) {
+                if (e.getKeyCode() == KeyEvent.VK_ENTER) {
+                    okButton.doClick();
+                }
+            }
+        });
+
+        cancelButton.addKeyListener(new KeyAdapter() {
+            @Override
+            public void keyPressed(KeyEvent e) {
+                if (e.getKeyCode() == KeyEvent.VK_ENTER) {
+                    cancelButton.doClick();
+                }
+            }
+        });
+
+        dialog.setVisible(true);
+
+        int result = (int) optionPane.getValue();
         if (result == JOptionPane.OK_OPTION) {
             Vector<Object> rowData = new Vector<>();
             for (Object field : fields) {
