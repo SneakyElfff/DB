@@ -191,12 +191,11 @@ public class DatabaseServer extends Component {
                 } else if (columnType == Types.BOOLEAN) {
                     preparedStatement.setBoolean(i + 1, Boolean.parseBoolean(value.toString()));
                 } else if (columnType == Types.ARRAY) {
-                    // Если value является строкой, разбиваем его на массив строк
                     if (value instanceof String) {
                         String stringValue = (String) value;
-                        // Предположим, что массив записан в формате '{value1,value2}'
-                        stringValue = stringValue.replaceAll("[{}]", ""); // Убираем фигурные скобки
-                        String[] arrayValue = stringValue.split(","); // Разделяем по запятой
+                        // ассив записан в формате '{value1,value2}'
+                        stringValue = stringValue.replaceAll("[{}]", "");
+                        String[] arrayValue = stringValue.split(",");
                         Array array = connection.createArrayOf("varchar", arrayValue);
                         preparedStatement.setArray(i + 1, array);
                     } else {
@@ -268,11 +267,12 @@ public class DatabaseServer extends Component {
             query = "SELECT * FROM " + tableName + " WHERE " + columnName + " = ?";
             preparedStatement = connection.prepareStatement(query);
             preparedStatement.setTimestamp(1, Timestamp.valueOf(searchValue));
-        } else if (isArrayColumn(tableName, columnName)) { // Добавим проверку, является ли колонка массивом
+        } else if (isArrayColumn(tableName, columnName)) {
             // Поиск в массиве, если поле типа array
-            query = "SELECT * FROM " + tableName + " WHERE ? = ANY(" + columnName + ")";
+            searchValue = "{\"" + searchValue.replaceAll(", ", "\", \"") + "\"}"; // преобразование в формат массива
+            query = "SELECT * FROM " + tableName + " WHERE " + columnName + " && ?";
             preparedStatement = connection.prepareStatement(query);
-            preparedStatement.setString(1, searchValue);
+            preparedStatement.setObject(1, searchValue, java.sql.Types.OTHER);
         } else {
             // Поиск по строковому значению
             query = "SELECT * FROM " + tableName + " WHERE " + columnName + " LIKE ?";
