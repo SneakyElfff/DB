@@ -21,6 +21,8 @@ public class DatabaseClient extends JFrame {
     private JMenu file_menu;
     private JButton search_button;
 
+    private Vector<String> allColumns = new Vector<>();
+
     public DatabaseClient() {
         setTitle("Travel Agency Database");
         setSize(600, 400);
@@ -175,7 +177,9 @@ public class DatabaseClient extends JFrame {
         }
     }
 
-    private Map<Integer, Object> primaryKeyValues;
+    private Map<Integer, Object> primaryKeyValues = new HashMap<>();
+    private Map<Integer, Map<String, Object>> foreignKeyValues = new HashMap<>();
+    private Map<String, List<String>> foreignKeyMapping = new HashMap<>();
 
     private void displayTable(String table_name) {
         displayTable(table_name, null);
@@ -194,7 +198,7 @@ public class DatabaseClient extends JFrame {
             out.flush();
 
             List<List<Object>> tableData = (List<List<Object>>) in.readObject();
-            setTableData(tableData);
+            setTableData(table_name, tableData);
 
             columns_list.removeAllItems();
             if (!tableData.isEmpty()) {
@@ -212,34 +216,56 @@ public class DatabaseClient extends JFrame {
         }
     }
 
-    private void setTableData(List<List<Object>> tableData) {
-        Vector<String> columns = new Vector<>();
+    private void setTableData(String tableName, List<List<Object>> tableData) {
         Vector<String> visibleColumns = new Vector<>();
         List<Integer> visibleIndexes = new ArrayList<>();
-        primaryKeyValues = new HashMap<>();
+        primaryKeyValues.clear();
+        foreignKeyValues.clear();
+        allColumns.clear();
 
         if (!tableData.isEmpty()) {
+            List<String> foreignKeysForTable = new ArrayList<>(); // Список внешних ключей для текущей таблицы
+
             for (int i = 0; i < tableData.get(0).size(); i++) {
                 String columnName = tableData.get(0).get(i).toString();
-                columns.add(columnName);
+                allColumns.add(columnName);
 
-                if (!columnName.toLowerCase().contains("_id") && !columnName.toLowerCase().contains("code") && !columnName.toLowerCase().contains("booking_number")) {
+                if (!columnName.toLowerCase().contains("_id")) {
                     visibleColumns.add(columnName);
                     visibleIndexes.add(i);
                 }
+
+                String modifiedTableName = tableName.endsWith("s") ? tableName.substring(0, tableName.length() - 1) : tableName;
+                if (!columnName.toLowerCase().startsWith(modifiedTableName.toLowerCase())) {
+
+                    if (columnName.toLowerCase().endsWith("_id")) {
+                        foreignKeysForTable.add(columnName);
+                    }
+                }
             }
+
+            foreignKeyMapping.put(tableName, foreignKeysForTable);
         }
 
         Vector<Vector<Object>> data = new Vector<>();
         for (int i = 1; i < tableData.size(); i++) {
             Vector<Object> row = new Vector<>();
+            Map<String, Object> rowForeignKeys = new HashMap<>();
+
             for (int index : visibleIndexes) {
                 row.add(tableData.get(i).get(index));
             }
             data.add(row);
 
-            Object primaryKeyValue = tableData.get(i).get(0); // Assuming the primary key is the first column
-            primaryKeyValues.put(i - 1, primaryKeyValue);
+            primaryKeyValues.put(i - 1, tableData.get(i).get(0));
+
+            for (String foreignKey : foreignKeyMapping.getOrDefault(tableName, new ArrayList<>())) {
+                int foreignKeyIndex = allColumns.indexOf(foreignKey);
+                if (foreignKeyIndex != -1) {
+                    rowForeignKeys.put(foreignKey, tableData.get(i).get(foreignKeyIndex));
+                }
+            }
+            foreignKeyValues.put(i - 1, rowForeignKeys);
         }
 
         DefaultTableModel model = new DefaultTableModel(data, visibleColumns);
@@ -253,20 +279,32 @@ public class DatabaseClient extends JFrame {
             return;
         }
 
-        Vector<String> columnNames = new Vector<>();
-        for (int i = 0; i < table_db.getColumnCount(); i++) {
-            columnNames.add(table_db.getColumnName(i));
-        }
+        List<String> relevantForeignKeys = foreignKeyMapping.getOrDefault(tableName, new ArrayList<>());
 
-        JPanel inputPanel = new JPanel(new GridLayout(columnNames.size(), 2));
-        Object[] fields = new Object[columnNames.size()];
+        JPanel inputPanel = new JPanel(new GridLayout(allColumns.size(), 2));
+        Object[] fields = new Object[allColumns.size()]; // Массив для хранения введенных значений
 
-        for (int i = 0; i < columnNames.size(); i++) {
-            inputPanel.add(new JLabel(columnNames.get(i)));
+        for (int i = 0; i < allColumns.size(); i++) {
+            String columnName = allColumns.get(i);
 
-            // Check if column name contains "date"
-            if (columnNames.get(i).toLowerCase().contains("date")) {
-                // Create a JSpinner for date input
+            String modifiedTableName = tableName.endsWith("s") ? tableName.substring(0, tableName.length() - 1) : tableName;
+            if (columnName.toLowerCase().startsWith(modifiedTableName.toLowerCase()))
+                continue;
+
+            inputPanel.add(new JLabel(columnName));
+
+            // Проверяем, является ли столбец внешним ключом для этой таблицы
+            if (relevantForeignKeys.contains(columnName)) {
+                JComboBox<Object> comboBox = new JComboBox<>();
+                foreignKeyValues.forEach((index, foreignKeys) -> {
+                    Object fkValue = foreignKeys.get(columnName);
+                    if (fkValue != null) {
+                        comboBox.addItem(fkValue);
+                    }
+                });
+                inputPanel.add(comboBox);
+                fields[i] = comboBox;
+            } else if (columnName.toLowerCase().contains("date")) {
                 JSpinner dateSpinner = new JSpinner(new SpinnerDateModel());
                 JSpinner.DateEditor dateEditor = new JSpinner.DateEditor(dateSpinner, "yyyy-MM-dd HH:mm:ss");
                 dateSpinner.setEditor(dateEditor);
@@ -274,23 +312,23 @@ public class DatabaseClient extends JFrame {
                 fields[i] = dateSpinner; // Store the spinner reference
             } else {
                 // Other fields (e.g., text or checkbox)
-                Object value = table_db.getValueAt(0, i); // Check the value type
-                if (value instanceof Boolean) {
-                    JCheckBox checkBox = new JCheckBox();
-                    inputPanel.add(checkBox);
-                    fields[i] = checkBox; // Store checkbox reference
-                } else {
+//                Object value = table_db.getValueAt(0, i); // Check the value type
+//                if (value instanceof Boolean) {
+//                    JCheckBox checkBox = new JCheckBox();
+//                    inputPanel.add(checkBox);
+//                    fields[i] = checkBox; // Store checkbox reference
+//                 else {
                     JTextField textField = new JTextField();
                     inputPanel.add(textField);
                     fields[i] = textField; // Store text field reference
-                }
+//                }
             }
         }
 
         JButton okButton = new JButton("OK");
         JButton cancelButton = new JButton("Cancel");
 
-        JOptionPane optionPane = new JOptionPane(inputPanel, JOptionPane.PLAIN_MESSAGE, JOptionPane.OK_CANCEL_OPTION, null, new Object[] {okButton, cancelButton});
+        JOptionPane optionPane = new JOptionPane(inputPanel, JOptionPane.PLAIN_MESSAGE, JOptionPane.OK_CANCEL_OPTION, null, new Object[]{okButton, cancelButton});
         JDialog dialog = optionPane.createDialog(this, "Enter new row data");
 
         dialog.getRootPane().setDefaultButton(null);
@@ -327,9 +365,10 @@ public class DatabaseClient extends JFrame {
                 } else if (field instanceof JCheckBox) {
                     rowData.add(((JCheckBox) field).isSelected());
                 } else if (field instanceof JSpinner) {
-                    // Get the selected date from the spinner and convert to java.sql.Timestamp
                     java.util.Date selectedDate = (java.util.Date) ((JSpinner) field).getValue();
-                    rowData.add(new java.sql.Timestamp(selectedDate.getTime())); // Convert to Timestamp
+                    rowData.add(new java.sql.Timestamp(selectedDate.getTime()));
+                } else if (field instanceof JComboBox) {
+                    rowData.add(((JComboBox<?>) field).getSelectedItem());
                 }
             }
             if (!sendNewRowToServer(tableName, rowData)) {
@@ -536,7 +575,7 @@ public class DatabaseClient extends JFrame {
 
             // Получаем отфильтрованные данные
             List<List<Object>> searchResults = (List<List<Object>>) in.readObject();
-            setTableData(searchResults);
+            setTableData(tableName, searchResults);
 
         } catch (IOException | ClassNotFoundException e) {
             e.printStackTrace();
