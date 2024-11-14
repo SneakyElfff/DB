@@ -175,6 +175,8 @@ public class DatabaseClient extends JFrame {
         }
     }
 
+    private Map<Integer, Object> primaryKeyValues;
+
     private void displayTable(String table_name) {
         displayTable(table_name, null);
     }
@@ -211,10 +213,10 @@ public class DatabaseClient extends JFrame {
     }
 
     private void setTableData(List<List<Object>> tableData) {
-        // Получаем имена столбцов из первой строки, предполагая, что она содержит заголовки
         Vector<String> columns = new Vector<>();
         Vector<String> visibleColumns = new Vector<>();
         List<Integer> visibleIndexes = new ArrayList<>();
+        primaryKeyValues = new HashMap<>();
 
         if (!tableData.isEmpty()) {
             for (int i = 0; i < tableData.get(0).size(); i++) {
@@ -228,7 +230,6 @@ public class DatabaseClient extends JFrame {
             }
         }
 
-        // Извлекаем строки данных только для отображаемых столбцов
         Vector<Vector<Object>> data = new Vector<>();
         for (int i = 1; i < tableData.size(); i++) {
             Vector<Object> row = new Vector<>();
@@ -236,9 +237,11 @@ public class DatabaseClient extends JFrame {
                 row.add(tableData.get(i).get(index));
             }
             data.add(row);
+
+            Object primaryKeyValue = tableData.get(i).get(0); // Assuming the primary key is the first column
+            primaryKeyValues.put(i - 1, primaryKeyValue);
         }
 
-        // Устанавливаем модель таблицы только с видимыми столбцами
         DefaultTableModel model = new DefaultTableModel(data, visibleColumns);
         table_db.setModel(model);
     }
@@ -376,10 +379,9 @@ public class DatabaseClient extends JFrame {
             }
 
             TableModel model = table_db.getModel();
-            String keyColumn = model.getColumnName(0);  // Название столбца для идентификатора
-            Object id = table_db.getValueAt(selectedRow, 0);  // Значение ключа
+            Object id = primaryKeyValues.get(selectedRow);
 
-            boolean success = sendDeleteRowToServer(tableName, keyColumn, id);
+            boolean success = sendDeleteRowToServer(tableName, id);
 
             if (success) {
                 displayTable(tableName);  // Обновляем таблицу после удаления
@@ -392,13 +394,12 @@ public class DatabaseClient extends JFrame {
         }
     }
 
-    private boolean sendDeleteRowToServer(String tableName, String keyColumn, Object id) {
+    private boolean sendDeleteRowToServer(String tableName, Object id) {
         try (Socket socket = new Socket("localhost", 8080);
              ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
              ObjectInputStream in = new ObjectInputStream(socket.getInputStream())) {
             out.writeObject("DELETE_ROW");
             out.writeObject(tableName);
-            out.writeObject(keyColumn);  // Отправляем название ключевого столбца
             out.writeObject(id);  // Отправляем значение ключа для удаления
             out.flush();
 
@@ -477,17 +478,16 @@ public class DatabaseClient extends JFrame {
                 newValue = currentValue;
             }
 
-            String keyColumn = table_db.getColumnName(0);
-            Object keyValue = model.getValueAt(selectedRow, 0);
+            Object keyValue = primaryKeyValues.get(selectedRow);
 
             // Отправляем запрос на сервер
-            if (sendEditRequestToServer(tableName, columnName, newValue, keyColumn, keyValue)) {
+            if (sendEditRequestToServer(tableName, columnName, newValue, keyValue)) {
                 model.setValueAt(newValue, selectedRow, selectedCol);
             }
         }
     }
 
-    private boolean sendEditRequestToServer(String tableName, String columnName, Object newValue, String keyColumn, Object keyValue) {
+    private boolean sendEditRequestToServer(String tableName, String columnName, Object newValue, Object keyValue) {
         try (Socket socket = new Socket("localhost", 8080);
              ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
              ObjectInputStream in = new ObjectInputStream(socket.getInputStream())) {
@@ -496,7 +496,6 @@ public class DatabaseClient extends JFrame {
             out.writeObject(tableName);
             out.writeObject(columnName);
             out.writeObject(newValue);
-            out.writeObject(keyColumn);
             out.writeObject(keyValue);
             out.flush();
 
