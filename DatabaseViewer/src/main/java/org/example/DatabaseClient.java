@@ -6,6 +6,8 @@ import java.awt.*;
 import java.awt.event.*;
 import java.io.*;
 import java.net.Socket;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.*;
 import javax.swing.table.TableModel;
 import java.util.List;
@@ -18,6 +20,7 @@ public class DatabaseClient extends JFrame {
     private boolean is_ascending = true;
     private JComboBox<String> columns_list;
     private JTextField search_field;
+    private JMenu edit_menu;
     private JMenu file_menu;
     private JButton search_button;
 
@@ -36,7 +39,9 @@ public class DatabaseClient extends JFrame {
         JMenuBar menu_bar = new JMenuBar();
         setJMenuBar(menu_bar);
 
-        file_menu = new JMenu("Edit");
+        edit_menu = new JMenu("Edit");
+        menu_bar.add(edit_menu);
+        file_menu = new JMenu("File");
         menu_bar.add(file_menu);
 
         JMenuItem add_item = new JMenuItem("Add data...");
@@ -46,7 +51,7 @@ public class DatabaseClient extends JFrame {
                 addNewRow();
             }
         });
-        file_menu.add(add_item);
+        edit_menu.add(add_item);
 
         JMenuItem delete_item = new JMenuItem("Delete data");
         delete_item.addActionListener(new ActionListener() {
@@ -55,7 +60,7 @@ public class DatabaseClient extends JFrame {
                 deleteSelectedRow();
             }
         });
-        file_menu.add(delete_item);
+        edit_menu.add(delete_item);
 
         JMenuItem edit_item = new JMenuItem("Edit selected row");
         edit_item.addActionListener(new ActionListener() {
@@ -64,7 +69,34 @@ public class DatabaseClient extends JFrame {
                 editSelectedRow();
             }
         });
-        file_menu.add(edit_item);
+        edit_menu.add(edit_item);
+
+        JMenuItem load_sql_item = new JMenuItem("Load SQL File...");
+        load_sql_item.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                JFileChooser fileChooser = new JFileChooser();
+                int result = fileChooser.showOpenDialog(null);
+
+                if (result == JFileChooser.APPROVE_OPTION) {
+                    File file = fileChooser.getSelectedFile();
+                    try {
+                        // Чтение содержимого файла
+                        String sql = new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8);
+
+                        // Разделение SQL на отдельные команды по ';' (предполагая, что каждая команда заканчивается на ;)
+                        List<String> sqlCommands = Arrays.asList(sql.split(";"));
+
+                        // Отправка SQL-запросов на сервер
+                        executeSQLCommands(sqlCommands);
+                    } catch (IOException ex) {
+                        JOptionPane.showMessageDialog(null, "Error reading file: " + ex.getMessage(),
+                                "File Error", JOptionPane.ERROR_MESSAGE);
+                    }
+                }
+            }
+        });
+        file_menu.add(load_sql_item);
 
         tables_list = new JComboBox<>();
         tables_list.addActionListener(e -> {
@@ -116,9 +148,14 @@ public class DatabaseClient extends JFrame {
         add(scroll_panel, BorderLayout.CENTER);
 
         DatabaseUtils.loadTables(tables_list);
+
+        tables_list.setSelectedItem("tours");
+        displayTable("tours");
+
         addKeyListeners();
 
         List<Component> focusableComponents = new ArrayList<>();
+        focusableComponents.add(edit_menu);
         focusableComponents.add(file_menu);
         focusableComponents.add(tables_list);
         focusableComponents.add(table_db);
@@ -130,6 +167,15 @@ public class DatabaseClient extends JFrame {
     }
 
     private void addKeyListeners() {
+        edit_menu.addKeyListener(new KeyAdapter() {
+            @Override
+            public void keyPressed(KeyEvent e) {
+                if (e.getKeyCode() == KeyEvent.VK_ENTER) {
+                    edit_menu.doClick();
+                }
+            }
+        });
+
         file_menu.addKeyListener(new KeyAdapter() {
             @Override
             public void keyPressed(KeyEvent e) {
@@ -574,6 +620,35 @@ public class DatabaseClient extends JFrame {
         } catch (IOException | ClassNotFoundException e) {
             e.printStackTrace();
             JOptionPane.showMessageDialog(this, "Error while searching: " + e.getMessage(), "Search Error", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private void executeSQLCommands(List<String> sqlCommands) {
+        try (Socket socket = new Socket("localhost", 8080);
+             ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
+             ObjectInputStream in = new ObjectInputStream(socket.getInputStream())) {
+
+            // Отправка команды на сервер
+            out.writeObject("EXECUTE_SQL");
+            out.writeObject(sqlCommands); // Отправляем список SQL-команд
+            out.flush();
+
+            // Чтение результата выполнения
+            boolean success = in.readBoolean();
+            String message = (String) in.readObject();
+
+            if (success) {
+                JOptionPane.showMessageDialog(this, "SQL commands executed successfully!\n" + message,
+                        "Success", JOptionPane.INFORMATION_MESSAGE);
+            } else {
+                JOptionPane.showMessageDialog(this, "Error executing SQL:\n" + message,
+                        "Execution Error", JOptionPane.ERROR_MESSAGE);
+            }
+
+        } catch (IOException | ClassNotFoundException e) {
+            JOptionPane.showMessageDialog(this, "Communication error: " + e.getMessage(),
+                    "Error", JOptionPane.ERROR_MESSAGE);
+            e.printStackTrace();
         }
     }
 

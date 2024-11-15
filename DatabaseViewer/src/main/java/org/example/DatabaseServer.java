@@ -92,6 +92,16 @@ public class DatabaseServer extends Component {
                     out.writeObject(primaryKeyValues);
                     break;
 
+                case "EXECUTE_SQL":
+                    List<String> sqlCommands = (List<String>) in.readObject(); // Получаем список SQL-команд
+                    StringBuilder resultMessage = new StringBuilder();
+                    success = executeSQLQueries(sqlCommands, resultMessage);
+
+                    out.writeBoolean(success);
+                    out.writeObject(resultMessage.toString());
+                    out.flush();
+                    break;
+
                 // Другие команды, если необходимо
             }
 
@@ -374,6 +384,28 @@ public class DatabaseServer extends Component {
             }
         }
         return primaryKeyValues;
+    }
+
+    private boolean executeSQLQueries(List<String> sqlCommands, StringBuilder resultMessage) {
+        boolean allSuccess = true;
+
+        for (String sql : sqlCommands) {
+            if (sql.trim().isEmpty()) {
+                continue; // Пропускаем пустые строки
+            }
+
+            try (Statement stmt = connection.createStatement()) {
+                stmt.execute(sql.trim() + ";"); // Выполнение SQL-команды
+                resultMessage.append("Executed successfully: ").append(sql).append("\n");
+            } catch (SQLException e) {
+                e.printStackTrace();
+                resultMessage.append("Error executing: ").append(sql).append("\n")
+                        .append("Error: ").append(e.getMessage()).append("\n");
+                allSuccess = false;
+            }
+        }
+
+        return allSuccess;
     }
 
     // Дополнительный метод для проверки типа колонки как массива
