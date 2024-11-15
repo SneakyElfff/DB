@@ -188,7 +188,7 @@ public class DatabaseServer extends Component {
             }
             query.append(")");
 
-            PreparedStatement preparedStatement = connection.prepareStatement(query.toString());
+            PreparedStatement preparedStatement = connection.prepareStatement(query.toString(), Statement.RETURN_GENERATED_KEYS);
             for (int i = 0; i < nonPrimaryKeyIndexes.size(); i++) {
                 int columnIndex = nonPrimaryKeyIndexes.get(i);
                 int columnType = metaData.getColumnType(columnIndex + 1);
@@ -217,7 +217,25 @@ public class DatabaseServer extends Component {
                 }
             }
 
+            // Выполнение запроса для вставки строки
             preparedStatement.executeUpdate();
+
+            // Получение сгенерированного ID для tour_id (если автоинкремент)
+            ResultSet generatedKeys = preparedStatement.getGeneratedKeys();
+            if (generatedKeys.next()) {
+                int tourId = generatedKeys.getInt(1); // Получаем tour_id
+                // Предполагается, что excursion_id уже есть в rowData
+                Object excursionId = rowData.get(rowData.size() - 1); // Последний элемент в rowData — это excursion_id
+
+                // Добавляем строку в таблицу leisure
+                String leisureQuery = "INSERT INTO leisure (tour_id, excursion_id) VALUES (?, ?)";
+                try (PreparedStatement leisureStatement = connection.prepareStatement(leisureQuery)) {
+                    leisureStatement.setInt(1, tourId);
+                    leisureStatement.setObject(2, excursionId);
+                    leisureStatement.executeUpdate();
+                }
+            }
+
             return true;
         } catch (SQLException e) {
             System.err.println("SQL Error: " + e.getMessage());

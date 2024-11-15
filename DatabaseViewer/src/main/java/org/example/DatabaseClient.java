@@ -22,6 +22,9 @@ public class DatabaseClient extends JFrame {
     private JButton search_button;
 
     private Vector<String> allColumns = new Vector<>();
+    private Map<Integer, Object> primaryKeyValues = new HashMap<>();
+    private Map<Integer, Map<String, Object>> foreignKeyValues = new HashMap<>();
+    private Map<String, List<String>> foreignKeyMapping = new HashMap<>();
 
     public DatabaseClient() {
         setTitle("Travel Agency Database");
@@ -112,7 +115,7 @@ public class DatabaseClient extends JFrame {
         scroll_panel = new JScrollPane(table_db);
         add(scroll_panel, BorderLayout.CENTER);
 
-        loadTables();
+        DatabaseUtils.loadTables(tables_list);
         addKeyListeners();
 
         List<Component> focusableComponents = new ArrayList<>();
@@ -153,33 +156,6 @@ public class DatabaseClient extends JFrame {
             }
         }
     }
-
-    private void loadTables() {
-        try {
-            Socket socket = new Socket("localhost", 8080);
-            ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
-            ObjectInputStream in = new ObjectInputStream(socket.getInputStream());
-
-            out.writeObject("GET_TABLES");
-            out.flush();
-
-            List<String> tableNames = (List<String>) in.readObject();
-            tables_list.removeAllItems();
-            for (String tableName : tableNames) {
-                if (!tableName.toLowerCase().contains("leisure")) {
-                    tables_list.addItem(tableName);
-                }
-            }
-
-            socket.close();
-        } catch (IOException | ClassNotFoundException e) {
-            e.printStackTrace();
-        }
-    }
-
-    private Map<Integer, Object> primaryKeyValues = new HashMap<>();
-    private Map<Integer, Map<String, Object>> foreignKeyValues = new HashMap<>();
-    private Map<String, List<String>> foreignKeyMapping = new HashMap<>();
 
     private void displayTable(String table_name) {
         displayTable(table_name, null);
