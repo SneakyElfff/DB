@@ -62,7 +62,14 @@ public class DatabaseServer extends Component {
 
                 case "DELETE_ROW":
                     tableName = (String) in.readObject();
-                    String keyColumn = (String) in.readObject();
+                    String keyColumn = "";
+                    DatabaseMetaData dbMetaData = connection.getMetaData();
+                    try (ResultSet rs = dbMetaData.getPrimaryKeys(null, null, tableName)) {
+                        if (rs.next()) {
+                            keyColumn = rs.getString("COLUMN_NAME");
+                        }
+                    }
+
                     Object id = in.readObject();
 
                     // Подготовка запроса с параметризованным значением для предотвращения SQL-инъекций
@@ -81,7 +88,15 @@ public class DatabaseServer extends Component {
                     tableName = (String) in.readObject();
                     String columnName = (String) in.readObject();
                     Object newValue = in.readObject();
-                    keyColumn = (String) in.readObject();
+
+                    keyColumn = "";
+                    dbMetaData = connection.getMetaData();
+                    try (ResultSet rs = dbMetaData.getPrimaryKeys(null, null, tableName)) {
+                        if (rs.next()) {
+                            keyColumn = rs.getString("COLUMN_NAME");
+                        }
+                    }
+
                     Object keyValue = in.readObject();
                     boolean updateSuccess = updateRowInDatabase(tableName, columnName, newValue, keyColumn, keyValue);
                     out.writeObject(updateSuccess ? "SUCCESS" : "FAILURE");
@@ -93,6 +108,13 @@ public class DatabaseServer extends Component {
                     String searchValue = (String) in.readObject();  // Значение для поиска
                     List<List<Object>> searchResults = searchInDatabase(searchTable, searchColumn, searchValue);
                     out.writeObject(searchResults);
+                    break;
+
+                case "GET_PRIMARY_KEY_VALUES":
+                    keyColumn = (String) in.readObject();
+                    tableName = (String) in.readObject();
+                    List<Object> primaryKeyValues = getPrimaryKeyValues(tableName, keyColumn);
+                    out.writeObject(primaryKeyValues);
                     break;
 
                 // Другие команды, если необходимо
@@ -142,8 +164,8 @@ public class DatabaseServer extends Component {
                 Object value = result.getObject(i);
 
                 // Преобразуем массив в List<String>, если это PgArray
-                if (value instanceof java.sql.Array) {
-                    Object[] array = (Object[]) ((java.sql.Array) value).getArray();
+                if (value instanceof Array) {
+                    Object[] array = (Object[]) ((Array) value).getArray();
                     row.add(Arrays.asList(array)); // Конвертируем массив в List
                 } else {
                     row.add(value);
@@ -163,25 +185,38 @@ public class DatabaseServer extends Component {
             ResultSetMetaData metaData = resultSet.getMetaData();
             int columnCount = metaData.getColumnCount();
 
+            DatabaseMetaData dbMetaData = connection.getMetaData();
+            ResultSet pkResultSet = dbMetaData.getPrimaryKeys(null, null, tableName);
+            List<String> primaryKeys = new ArrayList<>();
+            while (pkResultSet.next()) {
+                primaryKeys.add(pkResultSet.getString("COLUMN_NAME"));
+            }
+            pkResultSet.close();
+
             StringBuilder query = new StringBuilder("INSERT INTO " + tableName + " (");
+            List<Integer> nonPrimaryKeyIndexes = new ArrayList<>();
             for (int i = 1; i <= columnCount; i++) {
-                query.append(metaData.getColumnName(i));
-                if (i < columnCount) {
-                    query.append(", ");
+                String columnName = metaData.getColumnName(i);
+                if (!primaryKeys.contains(columnName)) {
+                    query.append(columnName).append(", ");
+                    nonPrimaryKeyIndexes.add(i - 1);
                 }
             }
+
+            query.setLength(query.length() - 2);
             query.append(") VALUES (");
-            for (int i = 0; i < columnCount; i++) {
+            for (int i = 0; i < nonPrimaryKeyIndexes.size(); i++) {
                 query.append("?");
-                if (i < columnCount - 1) {
+                if (i < nonPrimaryKeyIndexes.size() - 1) {
                     query.append(", ");
                 }
             }
             query.append(")");
 
             PreparedStatement preparedStatement = connection.prepareStatement(query.toString());
-            for (int i = 0; i < columnCount; i++) {
-                int columnType = metaData.getColumnType(i + 1);
+            for (int i = 0; i < nonPrimaryKeyIndexes.size(); i++) {
+                int columnIndex = nonPrimaryKeyIndexes.get(i);
+                int columnType = metaData.getColumnType(columnIndex + 1);
                 Object value = rowData.get(i);
 
                 if (columnType == Types.INTEGER) {
@@ -193,13 +228,11 @@ public class DatabaseServer extends Component {
                 } else if (columnType == Types.ARRAY) {
                     if (value instanceof String) {
                         String stringValue = (String) value;
-                        // ассив записан в формате '{value1,value2}'
                         stringValue = stringValue.replaceAll("[{}]", "");
                         String[] arrayValue = stringValue.split(",");
                         Array array = connection.createArrayOf("varchar", arrayValue);
                         preparedStatement.setArray(i + 1, array);
                     } else {
-                        // Обработка других типов, если это не строка
                         String[] arrayValue = ((List<String>) value).toArray(new String[0]);
                         Array array = connection.createArrayOf("varchar", arrayValue);
                         preparedStatement.setArray(i + 1, array);
@@ -208,6 +241,7 @@ public class DatabaseServer extends Component {
                     preparedStatement.setObject(i + 1, value);
                 }
             }
+
             preparedStatement.executeUpdate();
             return true;
         } catch (SQLException e) {
@@ -237,9 +271,9 @@ public class DatabaseServer extends Component {
 
     private boolean updateRowInDatabase(String tableName, String columnName, Object newValue, String keyColumn, Object keyValue) {
         try {
-            String sql = "UPDATE " + tableName + " SET " + columnName + " = ? WHERE " + keyColumn + " = ?";
+            String sql = "UPDATE " + tableName + " SET " + columnName + " = string_to_array(?, ',') WHERE " + keyColumn + " = ?";
             PreparedStatement preparedStatement = connection.prepareStatement(sql);
-            preparedStatement.setObject(1, newValue);
+            preparedStatement.setString(1, (String) newValue);
             preparedStatement.setObject(2, keyValue);
             return preparedStatement.executeUpdate() > 0;
         } catch (SQLException e) {
@@ -272,7 +306,7 @@ public class DatabaseServer extends Component {
             searchValue = "{\"" + searchValue.replaceAll(", ", "\", \"") + "\"}"; // преобразование в формат массива
             query = "SELECT * FROM " + tableName + " WHERE " + columnName + " && ?";
             preparedStatement = connection.prepareStatement(query);
-            preparedStatement.setObject(1, searchValue, java.sql.Types.OTHER);
+            preparedStatement.setObject(1, searchValue, Types.OTHER);
         } else {
             // Поиск по строковому значению
             query = "SELECT * FROM " + tableName + " WHERE " + columnName + " LIKE ?";
@@ -297,8 +331,8 @@ public class DatabaseServer extends Component {
             List<Object> row = new ArrayList<>();
             for (int i = 1; i <= colCount; i++) {
                 Object value = result.getObject(i);
-                if (value instanceof java.sql.Array) {
-                    Object[] array = (Object[]) ((java.sql.Array) value).getArray();
+                if (value instanceof Array) {
+                    Object[] array = (Object[]) ((Array) value).getArray();
                     row.add(Arrays.asList(array));
                 } else {
                     row.add(value);
@@ -307,6 +341,18 @@ public class DatabaseServer extends Component {
             results.add(row);
         }
         return results;
+    }
+
+    private List<Object> getPrimaryKeyValues(String tableName, String keyColumn) throws SQLException {
+        List<Object> primaryKeyValues = new ArrayList<>();
+        String query = "SELECT " + keyColumn + " FROM " + tableName;
+        try (Statement stmt = connection.createStatement();
+             ResultSet rs = stmt.executeQuery(query)) {
+            while (rs.next()) {
+                primaryKeyValues.add(rs.getObject(keyColumn));
+            }
+        }
+        return primaryKeyValues;
     }
 
     // Дополнительный метод для проверки типа колонки как массива

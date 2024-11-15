@@ -204,7 +204,7 @@ public class DatabaseClient extends JFrame {
             if (!tableData.isEmpty()) {
                 for (Object column : tableData.get(0)) {
                     String columnName = column.toString();
-                    if (!columnName.toLowerCase().contains("_id") && !columnName.toLowerCase().contains("code") && !columnName.toLowerCase().contains("booking_number")) {
+                    if (!columnName.toLowerCase().contains("_id")) {
                         columns_list.addItem(columnName);
                     }
                 }
@@ -296,12 +296,10 @@ public class DatabaseClient extends JFrame {
             // Проверяем, является ли столбец внешним ключом для этой таблицы
             if (relevantForeignKeys.contains(columnName)) {
                 JComboBox<Object> comboBox = new JComboBox<>();
-                foreignKeyValues.forEach((index, foreignKeys) -> {
-                    Object fkValue = foreignKeys.get(columnName);
-                    if (fkValue != null) {
-                        comboBox.addItem(fkValue);
-                    }
-                });
+                List<Object> foreignKeyValues = getPrimaryKeyValues(columnName);
+                for (Object value : foreignKeyValues) {
+                    comboBox.addItem(value);
+                }
                 inputPanel.add(comboBox);
                 fields[i] = comboBox;
             } else if (columnName.toLowerCase().contains("date")) {
@@ -311,17 +309,15 @@ public class DatabaseClient extends JFrame {
                 inputPanel.add(dateSpinner);
                 fields[i] = dateSpinner; // Store the spinner reference
             } else {
-                // Other fields (e.g., text or checkbox)
-//                Object value = table_db.getValueAt(0, i); // Check the value type
-//                if (value instanceof Boolean) {
-//                    JCheckBox checkBox = new JCheckBox();
-//                    inputPanel.add(checkBox);
-//                    fields[i] = checkBox; // Store checkbox reference
-//                 else {
+                if (columnName.toLowerCase().startsWith("is_")) {
+                    JCheckBox checkBox = new JCheckBox();
+                    inputPanel.add(checkBox);
+                    fields[i] = checkBox; // Store checkbox reference
+                } else {
                     JTextField textField = new JTextField();
                     inputPanel.add(textField);
                     fields[i] = textField; // Store text field reference
-//                }
+                }
             }
         }
 
@@ -375,6 +371,28 @@ public class DatabaseClient extends JFrame {
                 JOptionPane.showMessageDialog(this, "Failed to add a new row.", "Error", JOptionPane.ERROR_MESSAGE);
             }
         }
+    }
+
+    private List<Object> getPrimaryKeyValues(String columnName) {
+        List<Object> primaryKeyValues = new ArrayList<>();
+        String tableName = null;
+        try (Socket socket = new Socket("localhost", 8080);
+             ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
+             ObjectInputStream in = new ObjectInputStream(socket.getInputStream())) {
+
+            tableName = columnName.replaceAll("_id$", "") + "s";
+
+            out.writeObject("GET_PRIMARY_KEY_VALUES");
+            out.writeObject(columnName);
+            out.writeObject(tableName);
+            out.flush();
+
+            primaryKeyValues = (List<Object>) in.readObject();
+        } catch (IOException | ClassNotFoundException e) {
+            e.printStackTrace();
+            JOptionPane.showMessageDialog(this, "Failed to retrieve primary key values for " + tableName, "Error", JOptionPane.ERROR_MESSAGE);
+        }
+        return primaryKeyValues;
     }
 
     private boolean sendNewRowToServer(String tableName, Vector<Object> rowData) {
