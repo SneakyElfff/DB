@@ -61,44 +61,19 @@ public class DatabaseServer extends Component {
                     break;
 
                 case "DELETE_ROW":
-                    tableName = (String) in.readObject();
-                    String keyColumn = "";
-                    DatabaseMetaData dbMetaData = connection.getMetaData();
-                    try (ResultSet rs = dbMetaData.getPrimaryKeys(null, null, tableName)) {
-                        if (rs.next()) {
-                            keyColumn = rs.getString("COLUMN_NAME");
-                        }
-                    }
+                    tableName = (String) in.readObject(); // Получаем имя таблицы
+                    Object keyValue = in.readObject();    // Получаем значение первичного ключа
+                    boolean deleteSuccess = deleteRowFromDatabase(tableName, keyValue);
+                    out.writeObject(deleteSuccess ? "SUCCESS" : "FAILURE");
+                    break;
 
-                    Object id = in.readObject();
+                case "UPDATE_ROW":
+                    tableName = (String) in.readObject(); // Получаем имя таблицы
+                    String columnName = (String) in.readObject(); // Имя столбца для обновления
+                    Object newValue = in.readObject(); // Новое значение
+                    keyValue = in.readObject(); // Значение первичного ключа
 
-                    // Подготовка запроса с параметризованным значением для предотвращения SQL-инъекций
-                    String query;
-                    if(tableName.equals("clients"))
-                        query = "DELETE FROM " + tableName + " WHERE " + keyColumn + " = '" + id + "'";
-                    else
-                        query = "DELETE FROM " + tableName + " WHERE " + keyColumn + " = " + id;
-
-                    PreparedStatement stmt = connection.prepareStatement(query);
-
-                    int rowsAffected = stmt.executeUpdate();
-                    out.writeObject(rowsAffected > 0 ? "SUCCESS" : "FAILURE");
-
-                case "UPDATE_ROW":  // Новая команда для обновления данных
-                    tableName = (String) in.readObject();
-                    String columnName = (String) in.readObject();
-                    Object newValue = in.readObject();
-
-                    keyColumn = "";
-                    dbMetaData = connection.getMetaData();
-                    try (ResultSet rs = dbMetaData.getPrimaryKeys(null, null, tableName)) {
-                        if (rs.next()) {
-                            keyColumn = rs.getString("COLUMN_NAME");
-                        }
-                    }
-
-                    Object keyValue = in.readObject();
-                    boolean updateSuccess = updateRowInDatabase(tableName, columnName, newValue, keyColumn, keyValue);
+                    boolean updateSuccess = updateRowInDatabase(tableName, columnName, newValue, keyValue);
                     out.writeObject(updateSuccess ? "SUCCESS" : "FAILURE");
                     break;
 
@@ -111,7 +86,7 @@ public class DatabaseServer extends Component {
                     break;
 
                 case "GET_PRIMARY_KEY_VALUES":
-                    keyColumn = (String) in.readObject();
+                    String keyColumn = (String) in.readObject();
                     tableName = (String) in.readObject();
                     List<Object> primaryKeyValues = getPrimaryKeyValues(tableName, keyColumn);
                     out.writeObject(primaryKeyValues);
@@ -255,27 +230,55 @@ public class DatabaseServer extends Component {
         }
     }
 
-    private boolean deleteRowFromDatabase(String tableName, int rowId) {
+    private boolean deleteRowFromDatabase(String tableName, Object keyValue) {
         try {
-            String query = "DELETE FROM " + tableName + " WHERE id = ?";
-            PreparedStatement preparedStatement = connection.prepareStatement(query);
-            preparedStatement.setInt(1, rowId);
-            int rowsAffected = preparedStatement.executeUpdate();
-            return rowsAffected > 0;
+            // Получаем имя столбца первичного ключа
+            String keyColumn = "";
+            DatabaseMetaData dbMetaData = connection.getMetaData();
+            try (ResultSet rs = dbMetaData.getPrimaryKeys(null, null, tableName)) {
+                if (rs.next()) {
+                    keyColumn = rs.getString("COLUMN_NAME");
+                }
+            }
+
+            if (keyColumn.isEmpty()) {
+                throw new SQLException("Primary key column not found for table " + tableName);
+            }
+
+            // Подготовка параметризованного запроса
+            String query = "DELETE FROM " + tableName + " WHERE " + keyColumn + " = ?";
+            try (PreparedStatement stmt = connection.prepareStatement(query)) {
+                stmt.setObject(1, keyValue);
+                return stmt.executeUpdate() > 0; // Возвращаем true, если строка была удалена
+            }
         } catch (SQLException e) {
-            System.err.println("SQL Error: " + e.getMessage());
             e.printStackTrace();
             return false;
         }
     }
 
-    private boolean updateRowInDatabase(String tableName, String columnName, Object newValue, String keyColumn, Object keyValue) {
+    private boolean updateRowInDatabase(String tableName, String columnName, Object newValue, Object keyValue) {
         try {
-            String sql = "UPDATE " + tableName + " SET " + columnName + " = string_to_array(?, ',') WHERE " + keyColumn + " = ?";
-            PreparedStatement preparedStatement = connection.prepareStatement(sql);
-            preparedStatement.setString(1, (String) newValue);
-            preparedStatement.setObject(2, keyValue);
-            return preparedStatement.executeUpdate() > 0;
+            // Получение имени первичного ключа
+            String keyColumn = "";
+            DatabaseMetaData dbMetaData = connection.getMetaData();
+            try (ResultSet rs = dbMetaData.getPrimaryKeys(null, null, tableName)) {
+                if (rs.next()) {
+                    keyColumn = rs.getString("COLUMN_NAME");
+                }
+            }
+
+            if (keyColumn.isEmpty()) {
+                throw new SQLException("Primary key column not found for table " + tableName);
+            }
+
+            // Подготовка параметризованного SQL-запроса
+            String query = "UPDATE " + tableName + " SET " + columnName + " = string_to_array(?, ',') WHERE " + keyColumn + " = ?";
+            try (PreparedStatement stmt = connection.prepareStatement(query)) {
+                stmt.setObject(1, newValue); // Устанавливаем новое значение
+                stmt.setObject(2, keyValue); // Устанавливаем значение первичного ключа
+                return stmt.executeUpdate() > 0; // Возвращаем true, если обновление прошло успешно
+            }
         } catch (SQLException e) {
             e.printStackTrace();
             return false;
