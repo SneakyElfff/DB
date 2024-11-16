@@ -300,12 +300,27 @@ public class DatabaseServer extends Component {
                 throw new SQLException("Primary key column not found for table " + tableName);
             }
 
-            // Подготовка параметризованного SQL-запроса
-            String query = "UPDATE " + tableName + " SET " + columnName + " = string_to_array(?, ',') WHERE " + keyColumn + " = ?";
+            // Определяем, требуется ли преобразование строки в массив
+            String query;
+            boolean isArray = false;
+            if (newValue instanceof String && ((String) newValue).startsWith("[") && ((String) newValue).endsWith("]")) {
+                query = "UPDATE " + tableName + " SET " + columnName + " = string_to_array(?, ',') WHERE " + keyColumn + " = ?";
+                isArray = true;
+            } else {
+                query = "UPDATE " + tableName + " SET " + columnName + " = ? WHERE " + keyColumn + " = ?";
+            }
+
             try (PreparedStatement stmt = connection.prepareStatement(query)) {
-                stmt.setObject(1, newValue); // Устанавливаем новое значение
-                stmt.setObject(2, keyValue); // Устанавливаем значение первичного ключа
-                return stmt.executeUpdate() > 0; // Возвращаем true, если обновление прошло успешно
+                if (isArray) {
+                    String arrayString = ((String) newValue)
+                            .substring(1, ((String) newValue).length() - 1)
+                            .replaceAll(",\\s+", ",");
+                    stmt.setString(1, arrayString);
+                } else {
+                    stmt.setObject(1, newValue);
+                }
+                stmt.setObject(2, keyValue);
+                return stmt.executeUpdate() > 0;
             }
         } catch (SQLException e) {
             e.printStackTrace();

@@ -10,6 +10,7 @@ import java.io.*;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.sql.Timestamp;
 import java.util.*;
 import javax.swing.table.TableModel;
 import javax.swing.table.TableRowSorter;
@@ -94,6 +95,16 @@ public class DatabaseClient extends JFrame {
     }
 
     private void addKeyListeners() {
+        KeyboardFocusManager manager = KeyboardFocusManager.getCurrentKeyboardFocusManager();
+        manager.addKeyEventDispatcher(e -> {
+            if (e.getID() == KeyEvent.KEY_PRESSED && e.isShiftDown()) {
+                if (e.getKeyCode() == KeyEvent.VK_ESCAPE) {
+                    System.exit(0);
+                }
+            }
+            return false;
+        });
+
         file_menu.addKeyListener(new KeyAdapter() {
             @Override
             public void keyPressed(KeyEvent e) {
@@ -203,9 +214,9 @@ public class DatabaseClient extends JFrame {
                 displayTable(selected);
         });
 
-        table_db.getTableHeader().addMouseListener(new java.awt.event.MouseAdapter() {
+        table_db.getTableHeader().addMouseListener(new MouseAdapter() {
             @Override
-            public void mouseClicked(java.awt.event.MouseEvent e) {
+            public void mouseClicked(MouseEvent e) {
                 int column = table_db.columnAtPoint(e.getPoint());
                 if (column != -1) {
                     String table_name = (String) tables_list.getSelectedItem();
@@ -413,8 +424,8 @@ public class DatabaseClient extends JFrame {
                 } else if (field instanceof JCheckBox) {
                     rowData.add(((JCheckBox) field).isSelected());
                 } else if (field instanceof JSpinner) {
-                    java.util.Date selectedDate = (java.util.Date) ((JSpinner) field).getValue();
-                    rowData.add(new java.sql.Timestamp(selectedDate.getTime()));
+                    Date selectedDate = (Date) ((JSpinner) field).getValue();
+                    rowData.add(new Timestamp(selectedDate.getTime()));
                 } else if (field instanceof JComboBox) {
                     rowData.add(((JComboBox<?>) field).getSelectedItem());
                 }
@@ -546,29 +557,44 @@ public class DatabaseClient extends JFrame {
         String tableName = (String) tables_list.getSelectedItem();
         String columnName = table_db.getColumnName(selectedCol);
         Object currentValue = model.getValueAt(selectedRow, selectedCol);
-        Object editorField;
+        Object editorField = null;
 
-        // Создаем панель для редактирования
-        JPanel inputPanel = new JPanel(new GridLayout(2, 2));
-        inputPanel.add(new JLabel("Edit value for: " + columnName));
+        // Создаем панель для редактирования, отображающую все поля строки
+        JPanel inputPanel = new JPanel(new GridLayout(model.getColumnCount(), 2));
+        JTextField[] textFields = new JTextField[model.getColumnCount()];
 
-        // Проверяем тип значения и добавляем соответствующий компонент
-        if (columnName.toLowerCase().contains("date")) {
-            JSpinner dateSpinner = new JSpinner(new SpinnerDateModel());
-            JSpinner.DateEditor dateEditor = new JSpinner.DateEditor(dateSpinner, "yyyy-MM-dd HH:mm:ss");
-            dateSpinner.setEditor(dateEditor);
-            dateSpinner.setValue(currentValue != null ? currentValue : new java.util.Date());
-            inputPanel.add(dateSpinner);
-            editorField = dateSpinner;
-        } else if (currentValue instanceof Boolean) {
-            JCheckBox checkBox = new JCheckBox();
-            checkBox.setSelected((Boolean) currentValue);
-            inputPanel.add(checkBox);
-            editorField = checkBox;
-        } else {
-            JTextField textField = new JTextField(currentValue != null ? currentValue.toString() : "");
-            inputPanel.add(textField);
-            editorField = textField;
+        for (int i = 0; i < model.getColumnCount(); i++) {
+            String colName = table_db.getColumnName(i);
+            Object cellValue = model.getValueAt(selectedRow, i);
+
+            inputPanel.add(new JLabel(colName)); // Добавляем название колонки
+
+            if (i == selectedCol) { // Выделенное поле — редактируемое
+                if (colName.toLowerCase().contains("date")) {
+                    JSpinner dateSpinner = new JSpinner(new SpinnerDateModel());
+                    JSpinner.DateEditor dateEditor = new JSpinner.DateEditor(dateSpinner, "yyyy-MM-dd HH:mm:ss");
+                    dateSpinner.setEditor(dateEditor);
+                    dateSpinner.setValue(cellValue != null ? cellValue : new Date());
+                    inputPanel.add(dateSpinner);
+                    editorField = dateSpinner;
+                } else if (cellValue instanceof Boolean) {
+                    JCheckBox checkBox = new JCheckBox();
+                    checkBox.setSelected((Boolean) cellValue);
+                    inputPanel.add(checkBox);
+                    editorField = checkBox;
+                } else {
+                    JTextField textField = new JTextField(cellValue != null ? cellValue.toString() : "");
+                    inputPanel.add(textField);
+                    textFields[i] = textField;
+                    editorField = textField;
+                }
+            } else {
+                JTextField textField = new JTextField(cellValue != null ? cellValue.toString() : "");
+                textField.setEditable(false);
+                textField.setFocusable(false);
+                inputPanel.add(textField);
+                textFields[i] = textField;
+            }
         }
 
         int result = JOptionPane.showConfirmDialog(this, inputPanel, "Edit value (" + tableName + ")", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
@@ -578,13 +604,12 @@ public class DatabaseClient extends JFrame {
             if (editorField instanceof JTextField) {
                 String text = ((JTextField) editorField).getText();
                 try {
-                    // Проверяем, является ли текст целым числом
                     if (text.matches("\\d+")) {
                         newValue = Integer.parseInt(text); // Преобразуем в Integer
                     } else if (text.matches("\\d*\\.\\d+")) {
-                        newValue = Double.parseDouble(text); // Преобразуем в Double для десятичных чисел
+                        newValue = Double.parseDouble(text); // Преобразуем в Double
                     } else {
-                        newValue = text; // Оставляем как строку, если не число
+                        newValue = text; // Оставляем строку
                     }
                 } catch (NumberFormatException e) {
                     JOptionPane.showMessageDialog(this, "Invalid number format", "Error", JOptionPane.ERROR_MESSAGE);
@@ -593,10 +618,10 @@ public class DatabaseClient extends JFrame {
             } else if (editorField instanceof JCheckBox) {
                 newValue = ((JCheckBox) editorField).isSelected();
             } else if (editorField instanceof JSpinner) {
-                java.util.Date selectedDate = (java.util.Date) ((JSpinner) editorField).getValue();
-                newValue = new java.sql.Timestamp(selectedDate.getTime());
+                Date selectedDate = (Date) ((JSpinner) editorField).getValue();
+                newValue = new Timestamp(selectedDate.getTime());
             } else {
-                newValue = currentValue;
+                newValue = currentValue; // Без изменений
             }
 
             Object keyValue = primaryKeyValues.get(selectedRow);
@@ -725,6 +750,7 @@ public class DatabaseClient extends JFrame {
             Ctrl + Left Arrow: Move from the table to the previous element
             Enter: Imitate a mouse click
             Escape: Close a dialog pane
+            Shift + Escape: Exit
             """;
 
         JTextArea textArea = new JTextArea(keysText);
