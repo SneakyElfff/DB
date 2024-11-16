@@ -388,22 +388,28 @@ public class DatabaseServer extends Component {
 
     private boolean executeSQLQueries(List<String> sqlCommands, StringBuilder resultMessage) {
         boolean allSuccess = true;
+        int successfulCount = 0;
+        int totalCommands = 0;
 
         for (String sql : sqlCommands) {
             if (sql.trim().isEmpty()) {
                 continue; // Пропускаем пустые строки
             }
+            totalCommands++;
 
             try (Statement stmt = connection.createStatement()) {
                 stmt.execute(sql.trim() + ";"); // Выполнение SQL-команды
-                resultMessage.append("Executed successfully: ").append(sql).append("\n");
+                successfulCount++;
             } catch (SQLException e) {
                 e.printStackTrace();
-                resultMessage.append("Error executing: ").append(sql).append("\n")
+                resultMessage.append("Error executing command: ").append(sql).append("\n")
                         .append("Error: ").append(e.getMessage()).append("\n");
                 allSuccess = false;
             }
         }
+
+        resultMessage.append("Executed successfully: ")
+                .append(successfulCount).append("/").append(totalCommands).append(" commands.\n");
 
         return allSuccess;
     }

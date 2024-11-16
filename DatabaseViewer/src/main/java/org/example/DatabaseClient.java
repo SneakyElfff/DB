@@ -1,5 +1,7 @@
 package org.example;
 
+import com.formdev.flatlaf.*;
+
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
@@ -463,6 +465,18 @@ public class DatabaseClient extends JFrame {
                 return;
             }
 
+            int confirm = JOptionPane.showConfirmDialog(
+                    this,
+                    "Are you sure you want to delete the selected row?",
+                    "Confirm Deletion",
+                    JOptionPane.YES_NO_OPTION,
+                    JOptionPane.WARNING_MESSAGE
+            );
+
+            if (confirm != JOptionPane.YES_OPTION) {
+                return;
+            }
+
             TableModel model = table_db.getModel();
             Object id = primaryKeyValues.get(selectedRow);
 
@@ -678,6 +692,16 @@ public class DatabaseClient extends JFrame {
     }
 
     public static void main(String[] args) {
+        try {
+            IntelliJTheme.setup(DatabaseClient.class.getResourceAsStream("/themes/DarkPurple.theme.json"));
+        } catch (Exception e) {
+            e.printStackTrace();
+            System.err.println("Не удалось загрузить тему.");
+        }
+        UIManager.put("Table.showHorizontalLines", true);
+        UIManager.put("Table.showVerticalLines", true);
+        UIManager.put("Table.gridColor", new Color(57, 56, 76));
+
         SwingUtilities.invokeLater(() -> new DatabaseClient().setVisible(true));
     }
 }
