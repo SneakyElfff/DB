@@ -10,8 +10,10 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.*;
 import javax.swing.table.TableModel;
+import javax.swing.table.TableRowSorter;
 import java.util.List;
 import java.util.Vector;
+import java.util.regex.Pattern;
 
 public class DatabaseClient extends JFrame {
     private JComboBox<String> tables_list;
@@ -125,23 +127,23 @@ public class DatabaseClient extends JFrame {
 
         columns_list = new JComboBox<>();
         search_field = new JTextField();
-        search_button = new JButton("Search");
-        search_button.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                if(search_field.getText().equals("")) {
-                    String table_name = (String) tables_list.getSelectedItem();
-                    displayTable(table_name);
-                }
-                else
-                    searchRows();
-            }
-        });
+//        search_button = new JButton("Search");
+//        search_button.addActionListener(new ActionListener() {
+//            @Override
+//            public void actionPerformed(ActionEvent e) {
+//                if(search_field.getText().equals("")) {
+//                    String table_name = (String) tables_list.getSelectedItem();
+//                    displayTable(table_name);
+//                }
+//                else
+//                    searchRows();
+//            }
+//        });
 
         JPanel search_panel = new JPanel(new BorderLayout());
         search_panel.add(columns_list, BorderLayout.WEST);
         search_panel.add(search_field, BorderLayout.CENTER);
-        search_panel.add(search_button, BorderLayout.EAST);
+//        search_panel.add(search_button, BorderLayout.EAST);
         add(search_panel, BorderLayout.SOUTH);
 
         scroll_panel = new JScrollPane(table_db);
@@ -161,7 +163,7 @@ public class DatabaseClient extends JFrame {
         focusableComponents.add(table_db);
         focusableComponents.add(columns_list);
         focusableComponents.add(search_field);
-        focusableComponents.add(search_button);
+//        focusableComponents.add(search_button);
 
         setFocusTraversalPolicy(new CustomFocusTraversalPolicy(focusableComponents));
     }
@@ -189,6 +191,26 @@ public class DatabaseClient extends JFrame {
             @Override
             public void keyPressed(KeyEvent e) {
                 handleArrowKeys(e, columns_list, tables_list);
+            }
+        });
+
+        search_field.addKeyListener(new KeyAdapter() {
+            @Override
+            public void keyReleased(KeyEvent e) {
+                String searchValue = search_field.getText().trim();
+                if (searchValue.isEmpty()) {
+                    ((TableRowSorter<?>) table_db.getRowSorter()).setRowFilter(null);
+                } else {
+                    String columnName = (String) columns_list.getSelectedItem();
+                    int columnIndex = table_db.getColumnModel().getColumnIndex(columnName);
+
+                    TableRowSorter<?> sorter = (TableRowSorter<?>) table_db.getRowSorter();
+                    sorter.setRowFilter(RowFilter.regexFilter("(?i)^" + Pattern.quote(searchValue), columnIndex));
+
+                    if (table_db.getRowCount() > 0) {
+                        table_db.changeSelection(0, columnIndex, false, false);
+                    }
+                }
             }
         });
     }
@@ -291,6 +313,8 @@ public class DatabaseClient extends JFrame {
         }
 
         DefaultTableModel model = new DefaultTableModel(data, visibleColumns);
+        TableRowSorter<DefaultTableModel> sorter = new TableRowSorter<>(model);
+        table_db.setRowSorter(sorter);
         table_db.setModel(model);
     }
 
@@ -615,7 +639,26 @@ public class DatabaseClient extends JFrame {
 
             // Получаем отфильтрованные данные
             List<List<Object>> searchResults = (List<List<Object>>) in.readObject();
+
+            if (searchResults.isEmpty()) {
+                JOptionPane.showMessageDialog(this, "No matching rows found.", "Search Result", JOptionPane.INFORMATION_MESSAGE);
+                return;
+            }
+
             setTableData(tableName, searchResults);
+
+            DefaultTableModel model = (DefaultTableModel) table_db.getModel();
+            int columnIndex = table_db.getColumnModel().getColumnIndex(columnName);
+
+            for (int i = 0; i < model.getRowCount(); i++) {
+                Object cellValue = model.getValueAt(i, columnIndex);
+                if (cellValue != null && cellValue.toString().contains(searchValue)) {
+                    table_db.changeSelection(i, columnIndex, false, false);
+                    return;
+                }
+            }
+
+            JOptionPane.showMessageDialog(this, "Search value not found in the column.", "Search Result", JOptionPane.INFORMATION_MESSAGE);
 
         } catch (IOException | ClassNotFoundException e) {
             e.printStackTrace();
