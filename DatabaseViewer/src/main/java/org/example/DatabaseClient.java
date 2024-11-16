@@ -24,8 +24,9 @@ public class DatabaseClient extends JFrame {
     private boolean is_ascending = true;
     private JComboBox<String> columns_list;
     private JTextField search_field;
-    private JMenu edit_menu;
     private JMenu file_menu;
+    private JMenu edit_menu;
+    private JMenu help_menu;
     private JButton search_button;
 
     private Vector<String> allColumns = new Vector<>();
@@ -43,10 +44,12 @@ public class DatabaseClient extends JFrame {
         JMenuBar menu_bar = new JMenuBar();
         setJMenuBar(menu_bar);
 
-        edit_menu = new JMenu("Edit");
-        menu_bar.add(edit_menu);
         file_menu = new JMenu("File");
         menu_bar.add(file_menu);
+        edit_menu = new JMenu("Edit");
+        menu_bar.add(edit_menu);
+        help_menu = new JMenu("Help");
+        menu_bar.add(help_menu);
 
         tables_list = new JComboBox<>();
         add(tables_list, BorderLayout.NORTH);
@@ -76,8 +79,9 @@ public class DatabaseClient extends JFrame {
         addListeners();
 
         List<Component> focusableComponents = new ArrayList<>();
-        focusableComponents.add(edit_menu);
         focusableComponents.add(file_menu);
+        focusableComponents.add(edit_menu);
+        focusableComponents.add(help_menu);
         focusableComponents.add(tables_list);
         focusableComponents.add(table_db);
         focusableComponents.add(columns_list);
@@ -85,9 +89,20 @@ public class DatabaseClient extends JFrame {
 //        focusableComponents.add(search_button);
 
         setFocusTraversalPolicy(new CustomFocusTraversalPolicy(focusableComponents));
+
+        setLocationRelativeTo(null);
     }
 
     private void addKeyListeners() {
+        file_menu.addKeyListener(new KeyAdapter() {
+            @Override
+            public void keyPressed(KeyEvent e) {
+                if (e.getKeyCode() == KeyEvent.VK_ENTER) {
+                    file_menu.doClick();
+                }
+            }
+        });
+
         edit_menu.addKeyListener(new KeyAdapter() {
             @Override
             public void keyPressed(KeyEvent e) {
@@ -97,11 +112,11 @@ public class DatabaseClient extends JFrame {
             }
         });
 
-        file_menu.addKeyListener(new KeyAdapter() {
+        help_menu.addKeyListener(new KeyAdapter() {
             @Override
             public void keyPressed(KeyEvent e) {
                 if (e.getKeyCode() == KeyEvent.VK_ENTER) {
-                    file_menu.doClick();
+                    help_menu.doClick();
                 }
             }
         });
@@ -177,6 +192,10 @@ public class DatabaseClient extends JFrame {
             }
         });
         file_menu.add(load_sql_item);
+
+        JMenuItem shortcuts_item = new JMenuItem("Keyboard Control");
+        shortcuts_item.addActionListener(e -> showKeysDialog());
+        help_menu.add(shortcuts_item);
 
         tables_list.addActionListener(e -> {
             String selected = (String) tables_list.getSelectedItem();
@@ -689,6 +708,46 @@ public class DatabaseClient extends JFrame {
                     "Error", JOptionPane.ERROR_MESSAGE);
             e.printStackTrace();
         }
+    }
+
+    private void showKeysDialog() {
+        JDialog dialog = new JDialog(this, "Keyboard control", true);
+        dialog.setSize(600, 200);
+        dialog.setLayout(new BorderLayout());
+
+        String keysText = """
+            Tab: Move to the next element
+            Shift + Tab: Move to the previous element
+            Ctrl + Right Arrow: Move from the table to the next element
+            Ctrl + Left Arrow: Move from the table to the previous element
+            Enter: Imitate a mouse click
+            Escape: Close a dialog pane
+            """;
+
+        JTextArea textArea = new JTextArea(keysText);
+        textArea.setEditable(false);
+        textArea.setFocusable(false);
+        textArea.setFont(new Font("Monospaced", Font.PLAIN, 14));
+        textArea.setMargin(new Insets(10, 10, 10, 10));
+
+        JScrollPane scrollPane = new JScrollPane(textArea);
+
+        JButton closeButton = new JButton("Close");
+        closeButton.addKeyListener(new KeyAdapter() {
+            @Override
+            public void keyPressed(KeyEvent e) {
+                if (e.getKeyCode() == KeyEvent.VK_ENTER) {
+                    dialog.dispose();
+                }
+            }
+        });
+        closeButton.addActionListener(e -> dialog.dispose());
+
+        dialog.add(scrollPane, BorderLayout.CENTER);
+        dialog.add(closeButton, BorderLayout.SOUTH);
+
+        dialog.setLocationRelativeTo(this);
+        dialog.setVisible(true);
     }
 
     public static void main(String[] args) {
