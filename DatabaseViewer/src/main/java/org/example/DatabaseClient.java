@@ -46,99 +46,15 @@ public class DatabaseClient extends JFrame {
         file_menu = new JMenu("File");
         menu_bar.add(file_menu);
 
-        JMenuItem add_item = new JMenuItem("Add data...");
-        add_item.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                addNewRow();
-            }
-        });
-        edit_menu.add(add_item);
-
-        JMenuItem delete_item = new JMenuItem("Delete data");
-        delete_item.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                deleteSelectedRow();
-            }
-        });
-        edit_menu.add(delete_item);
-
-        JMenuItem edit_item = new JMenuItem("Edit selected row");
-        edit_item.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                editSelectedRow();
-            }
-        });
-        edit_menu.add(edit_item);
-
-        JMenuItem load_sql_item = new JMenuItem("Load SQL File...");
-        load_sql_item.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                JFileChooser fileChooser = new JFileChooser();
-                int result = fileChooser.showOpenDialog(null);
-
-                if (result == JFileChooser.APPROVE_OPTION) {
-                    File file = fileChooser.getSelectedFile();
-                    try {
-                        // Чтение содержимого файла
-                        String sql = new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8);
-
-                        // Разделение SQL на отдельные команды по ';' (предполагая, что каждая команда заканчивается на ;)
-                        List<String> sqlCommands = Arrays.asList(sql.split(";"));
-
-                        // Отправка SQL-запросов на сервер
-                        executeSQLCommands(sqlCommands);
-                    } catch (IOException ex) {
-                        JOptionPane.showMessageDialog(null, "Error reading file: " + ex.getMessage(),
-                                "File Error", JOptionPane.ERROR_MESSAGE);
-                    }
-                }
-            }
-        });
-        file_menu.add(load_sql_item);
-
         tables_list = new JComboBox<>();
-        tables_list.addActionListener(e -> {
-            String selected = (String) tables_list.getSelectedItem();
-            if (selected != null)
-                displayTable(selected);
-        });
         add(tables_list, BorderLayout.NORTH);
 
         table_db = new JTable();
         table_db.setAutoCreateRowSorter(true);
-        table_db.getTableHeader().addMouseListener(new java.awt.event.MouseAdapter() {
-            @Override
-            public void mouseClicked(java.awt.event.MouseEvent e) {
-                int column = table_db.columnAtPoint(e.getPoint());
-                if (column != -1) {
-                    String table_name = (String) tables_list.getSelectedItem();
-                    String column_name = table_db.getColumnName(column);
-
-                    is_ascending = !is_ascending;
-
-                    displayTable(table_name, column_name);
-                }
-            }
-        });
 
         columns_list = new JComboBox<>();
         search_field = new JTextField();
 //        search_button = new JButton("Search");
-//        search_button.addActionListener(new ActionListener() {
-//            @Override
-//            public void actionPerformed(ActionEvent e) {
-//                if(search_field.getText().equals("")) {
-//                    String table_name = (String) tables_list.getSelectedItem();
-//                    displayTable(table_name);
-//                }
-//                else
-//                    searchRows();
-//            }
-//        });
 
         JPanel search_panel = new JPanel(new BorderLayout());
         search_panel.add(columns_list, BorderLayout.WEST);
@@ -155,6 +71,7 @@ public class DatabaseClient extends JFrame {
         displayTable("tours");
 
         addKeyListeners();
+        addListeners();
 
         List<Component> focusableComponents = new ArrayList<>();
         focusableComponents.add(edit_menu);
@@ -223,6 +140,71 @@ public class DatabaseClient extends JFrame {
                 previous.requestFocus();
             }
         }
+    }
+
+    private void addListeners() {
+        JMenuItem add_item = new JMenuItem("Add data...");
+        add_item.addActionListener(e -> addNewRow());
+        edit_menu.add(add_item);
+
+        JMenuItem delete_item = new JMenuItem("Delete data");
+        delete_item.addActionListener(e -> deleteSelectedRow());
+        edit_menu.add(delete_item);
+
+        JMenuItem edit_item = new JMenuItem("Edit selected row");
+        edit_item.addActionListener(e -> editSelectedRow());
+        edit_menu.add(edit_item);
+
+        JMenuItem load_sql_item = new JMenuItem("Load SQL File...");
+        load_sql_item.addActionListener(e -> {
+            JFileChooser fileChooser = new JFileChooser();
+            int result = fileChooser.showOpenDialog(null);
+
+            if (result == JFileChooser.APPROVE_OPTION) {
+                File file = fileChooser.getSelectedFile();
+                try {
+                    String sql = new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8);
+
+                    List<String> sqlCommands = Arrays.asList(sql.split(";"));
+
+                    executeSQLCommands(sqlCommands);
+                } catch (IOException ex) {
+                    JOptionPane.showMessageDialog(null, "Error reading file: " + ex.getMessage(),
+                            "File Error", JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        });
+        file_menu.add(load_sql_item);
+
+        tables_list.addActionListener(e -> {
+            String selected = (String) tables_list.getSelectedItem();
+            if (selected != null)
+                displayTable(selected);
+        });
+
+        table_db.getTableHeader().addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent e) {
+                int column = table_db.columnAtPoint(e.getPoint());
+                if (column != -1) {
+                    String table_name = (String) tables_list.getSelectedItem();
+                    String column_name = table_db.getColumnName(column);
+
+                    is_ascending = !is_ascending;
+
+                    displayTable(table_name, column_name);
+                }
+            }
+        });
+
+//        search_button.addActionListener(e -> {
+//            if(search_field.getText().equals("")) {
+//                String table_name = (String) tables_list.getSelectedItem();
+//                displayTable(table_name);
+//            }
+//            else
+//                searchRows();
+//        });
     }
 
     private void displayTable(String table_name) {
@@ -616,55 +598,55 @@ public class DatabaseClient extends JFrame {
         }
     }
 
-    private void searchRows() {
-        String tableName = (String) tables_list.getSelectedItem();
-        String columnName = (String) columns_list.getSelectedItem();
-        String searchValue = search_field.getText();
-
-        if (tableName == null || columnName == null || searchValue.isEmpty()) {
-            JOptionPane.showMessageDialog(this, "Please select a table, a column, and enter a search value.", "Search Error", JOptionPane.ERROR_MESSAGE);
-            return;
-        }
-
-        try (Socket socket = new Socket("localhost", 8080);
-             ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
-             ObjectInputStream in = new ObjectInputStream(socket.getInputStream())) {
-
-            // Отправляем команду поиска
-            out.writeObject("SEARCH_ROWS");
-            out.writeObject(tableName);
-            out.writeObject(columnName);
-            out.writeObject(searchValue);
-            out.flush();
-
-            // Получаем отфильтрованные данные
-            List<List<Object>> searchResults = (List<List<Object>>) in.readObject();
-
-            if (searchResults.isEmpty()) {
-                JOptionPane.showMessageDialog(this, "No matching rows found.", "Search Result", JOptionPane.INFORMATION_MESSAGE);
-                return;
-            }
-
-            setTableData(tableName, searchResults);
-
-            DefaultTableModel model = (DefaultTableModel) table_db.getModel();
-            int columnIndex = table_db.getColumnModel().getColumnIndex(columnName);
-
-            for (int i = 0; i < model.getRowCount(); i++) {
-                Object cellValue = model.getValueAt(i, columnIndex);
-                if (cellValue != null && cellValue.toString().contains(searchValue)) {
-                    table_db.changeSelection(i, columnIndex, false, false);
-                    return;
-                }
-            }
-
-            JOptionPane.showMessageDialog(this, "Search value not found in the column.", "Search Result", JOptionPane.INFORMATION_MESSAGE);
-
-        } catch (IOException | ClassNotFoundException e) {
-            e.printStackTrace();
-            JOptionPane.showMessageDialog(this, "Error while searching: " + e.getMessage(), "Search Error", JOptionPane.ERROR_MESSAGE);
-        }
-    }
+//    private void searchRows() {
+//        String tableName = (String) tables_list.getSelectedItem();
+//        String columnName = (String) columns_list.getSelectedItem();
+//        String searchValue = search_field.getText();
+//
+//        if (tableName == null || columnName == null || searchValue.isEmpty()) {
+//            JOptionPane.showMessageDialog(this, "Please select a table, a column, and enter a search value.", "Search Error", JOptionPane.ERROR_MESSAGE);
+//            return;
+//        }
+//
+//        try (Socket socket = new Socket("localhost", 8080);
+//             ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
+//             ObjectInputStream in = new ObjectInputStream(socket.getInputStream())) {
+//
+//            // Отправляем команду поиска
+//            out.writeObject("SEARCH_ROWS");
+//            out.writeObject(tableName);
+//            out.writeObject(columnName);
+//            out.writeObject(searchValue);
+//            out.flush();
+//
+//            // Получаем отфильтрованные данные
+//            List<List<Object>> searchResults = (List<List<Object>>) in.readObject();
+//
+//            if (searchResults.isEmpty()) {
+//                JOptionPane.showMessageDialog(this, "No matching rows found.", "Search Result", JOptionPane.INFORMATION_MESSAGE);
+//                return;
+//            }
+//
+//            setTableData(tableName, searchResults);
+//
+//            DefaultTableModel model = (DefaultTableModel) table_db.getModel();
+//            int columnIndex = table_db.getColumnModel().getColumnIndex(columnName);
+//
+//            for (int i = 0; i < model.getRowCount(); i++) {
+//                Object cellValue = model.getValueAt(i, columnIndex);
+//                if (cellValue != null && cellValue.toString().contains(searchValue)) {
+//                    table_db.changeSelection(i, columnIndex, false, false);
+//                    return;
+//                }
+//            }
+//
+//            JOptionPane.showMessageDialog(this, "Search value not found in the column.", "Search Result", JOptionPane.INFORMATION_MESSAGE);
+//
+//        } catch (IOException | ClassNotFoundException e) {
+//            e.printStackTrace();
+//            JOptionPane.showMessageDialog(this, "Error while searching: " + e.getMessage(), "Search Error", JOptionPane.ERROR_MESSAGE);
+//        }
+//    }
 
     private void executeSQLCommands(List<String> sqlCommands) {
         try (Socket socket = new Socket("localhost", 8080);
