@@ -371,10 +371,13 @@ public class DatabaseClient extends JFrame {
         }
 
         JButton okButton = new JButton("OK");
+        okButton.setBackground(new Color(108, 63, 149));
+        Font boldFont = new Font("Arial", Font.BOLD, 14);
+        okButton.setFont(boldFont);
         JButton cancelButton = new JButton("Cancel");
 
         JOptionPane optionPane = new JOptionPane(inputPanel, JOptionPane.PLAIN_MESSAGE, JOptionPane.OK_CANCEL_OPTION, null, new Object[]{okButton, cancelButton});
-        JDialog dialog = optionPane.createDialog(this, "Enter new row data");
+        JDialog dialog = optionPane.createDialog(this, "Enter new row data (" + tableName + ")");
 
         dialog.getRootPane().setDefaultButton(null);
 
@@ -487,7 +490,7 @@ public class DatabaseClient extends JFrame {
             int confirm = JOptionPane.showConfirmDialog(
                     this,
                     "Are you sure you want to delete the selected row?",
-                    "Confirm Deletion",
+                    "Confirm deletion (" + tableName + ")",
                     JOptionPane.YES_NO_OPTION,
                     JOptionPane.WARNING_MESSAGE
             );
@@ -535,7 +538,7 @@ public class DatabaseClient extends JFrame {
         int selectedCol = table_db.getSelectedColumn();
 
         if (selectedRow == -1 || selectedCol == -1) {
-            JOptionPane.showMessageDialog(this, "Please select a cell to edit.", "No Selection", JOptionPane.WARNING_MESSAGE);
+            JOptionPane.showMessageDialog(this, "Please select a cell to edit.", "No selection", JOptionPane.WARNING_MESSAGE);
             return;
         }
 
@@ -568,7 +571,7 @@ public class DatabaseClient extends JFrame {
             editorField = textField;
         }
 
-        int result = JOptionPane.showConfirmDialog(this, inputPanel, "Edit value", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        int result = JOptionPane.showConfirmDialog(this, inputPanel, "Edit value (" + tableName + ")", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
 
         if (result == JOptionPane.OK_OPTION) {
             Object newValue;
