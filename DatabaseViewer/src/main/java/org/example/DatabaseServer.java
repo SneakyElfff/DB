@@ -233,14 +233,14 @@ public class DatabaseServer extends Component {
             // Получение сгенерированного ID для tour_id (если автоинкремент)
             ResultSet generatedKeys = preparedStatement.getGeneratedKeys();
             if (generatedKeys.next()) {
-                int tourId = generatedKeys.getInt(1); // Получаем tour_id
+                Object tourId = rowData.get(0); // Первый элемент в rowData — это tour_id
                 // Предполагается, что excursion_id уже есть в rowData
                 Object excursionId = rowData.get(rowData.size() - 1); // Последний элемент в rowData — это excursion_id
 
                 // Добавляем строку в таблицу leisure
                 String leisureQuery = "INSERT INTO leisure (tour_id, excursion_id) VALUES (?, ?)";
                 try (PreparedStatement leisureStatement = connection.prepareStatement(leisureQuery)) {
-                    leisureStatement.setInt(1, tourId);
+                    leisureStatement.setObject(1, tourId);
                     leisureStatement.setObject(2, excursionId);
                     leisureStatement.executeUpdate();
                 }
