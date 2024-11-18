@@ -746,8 +746,8 @@ public class DatabaseClient extends JFrame {
         String keysText = """
             Tab: Move to the next element
             Shift + Tab: Move to the previous element
-            Ctrl + Right Arrow: Move from the table to the next element
-            Ctrl + Left Arrow: Move from the table to the previous element
+            Shift + Right Arrow: Move from the table to the next element
+            Shift + Left Arrow: Move from the table to the previous element
             Enter: Imitate a mouse click
             Escape: Close a dialog pane
             Shift + Escape: Exit
