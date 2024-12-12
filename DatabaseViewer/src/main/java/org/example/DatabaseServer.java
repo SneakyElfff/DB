@@ -108,12 +108,18 @@ public class DatabaseServer extends Component {
                     break;
 
                 case "UPDATE_ROW":
-                    tableName = (String) in.readObject(); // Получаем имя таблицы
-                    String columnName = (String) in.readObject(); // Имя столбца для обновления
-                    Object newValue = in.readObject(); // Новое значение
-                    keyValue = in.readObject(); // Значение первичного ключа
+                    tableName = (String) in.readObject();
+                    String columnName = (String) in.readObject();
+                    Object newValue = in.readObject();
+                    keyValue = in.readObject();
 
-                    boolean updateSuccess = updateRowInDatabase(tableName, columnName, newValue, keyValue);
+                    tableFolder = new File(berkeleyDbFolder, tableName);
+                    if (!tableFolder.exists() || !tableFolder.isDirectory()) {
+                        out.writeObject("TABLE_NOT_FOUND");
+                        break;
+                    }
+
+                    boolean updateSuccess = updateRowInDatabase(tableFolder, columnName, newValue, keyValue);
                     out.writeObject(updateSuccess ? "SUCCESS" : "FAILURE");
                     break;
 
@@ -299,44 +305,54 @@ public class DatabaseServer extends Component {
         }
     }
 
-    private boolean updateRowInDatabase(String tableName, String columnName, Object newValue, Object keyValue) {
+    private boolean updateRowInDatabase(File tableFolder, String columnName, Object newValue, Object keyValue) {
         try {
-            // Получение имени первичного ключа
-            String keyColumn = "";
-            DatabaseMetaData dbMetaData = connection.getMetaData();
-            try (ResultSet rs = dbMetaData.getPrimaryKeys(null, null, tableName)) {
-                if (rs.next()) {
-                    keyColumn = rs.getString("COLUMN_NAME");
-                }
+            EnvironmentConfig envConfig = new EnvironmentConfig();
+            envConfig.setAllowCreate(false);
+            Environment dbEnvironment = new Environment(tableFolder, envConfig);
+
+            DatabaseConfig dbConfig = new DatabaseConfig();
+            dbConfig.setAllowCreate(false);
+            Database berkeleyDb = dbEnvironment.openDatabase(null, tableFolder.getName(), dbConfig);
+
+            DatabaseEntry keyEntry = new DatabaseEntry(keyValue.toString().getBytes(StandardCharsets.UTF_8));
+            DatabaseEntry valueEntry = new DatabaseEntry();
+
+            if (berkeleyDb.get(null, keyEntry, valueEntry, LockMode.DEFAULT) != OperationStatus.SUCCESS) {
+                System.err.println("Key not found: " + keyValue);
+                berkeleyDb.close();
+                dbEnvironment.close();
+                return false;
             }
 
-            if (keyColumn.isEmpty()) {
-                throw new SQLException("Primary key column not found for table " + tableName);
+            String serializedData = new String(valueEntry.getData(), StandardCharsets.UTF_8);
+            ObjectMapper mapper = new ObjectMapper();
+            Map<String, Object> rowData = mapper.readValue(serializedData, Map.class);
+
+            if (!rowData.containsKey(columnName)) {
+                System.err.println("Column not found: " + columnName);
+                berkeleyDb.close();
+                dbEnvironment.close();
+                return false;
             }
 
-            // Определяем, требуется ли преобразование строки в массив
-            String query;
-            boolean isArray = false;
-            if (newValue instanceof String && ((String) newValue).startsWith("[") && ((String) newValue).endsWith("]")) {
-                query = "UPDATE " + tableName + " SET " + columnName + " = string_to_array(?, ',') WHERE " + keyColumn + " = ?";
-                isArray = true;
-            } else {
-                query = "UPDATE " + tableName + " SET " + columnName + " = ? WHERE " + keyColumn + " = ?";
+            rowData.put(columnName, newValue);
+
+            String updatedSerializedData = mapper.writeValueAsString(rowData);
+            valueEntry.setData(updatedSerializedData.getBytes(StandardCharsets.UTF_8));
+
+            if (berkeleyDb.put(null, keyEntry, valueEntry) != OperationStatus.SUCCESS) {
+                System.err.println("Failed to update key: " + keyValue);
+                berkeleyDb.close();
+                dbEnvironment.close();
+                return false;
             }
 
-            try (PreparedStatement stmt = connection.prepareStatement(query)) {
-                if (isArray) {
-                    String arrayString = ((String) newValue)
-                            .substring(1, ((String) newValue).length() - 1)
-                            .replaceAll(",\\s+", ",");
-                    stmt.setString(1, arrayString);
-                } else {
-                    stmt.setObject(1, newValue);
-                }
-                stmt.setObject(2, keyValue);
-                return stmt.executeUpdate() > 0;
-            }
-        } catch (SQLException e) {
+            berkeleyDb.close();
+            dbEnvironment.close();
+            return true;
+
+        } catch (Exception e) {
             e.printStackTrace();
             return false;
         }

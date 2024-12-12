@@ -11,6 +11,8 @@ import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.sql.Timestamp;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
 import java.util.*;
 import javax.swing.table.TableModel;
 import javax.swing.table.TableRowSorter;
@@ -578,7 +580,22 @@ public class DatabaseClient extends JFrame {
                     JSpinner dateSpinner = new JSpinner(new SpinnerDateModel());
                     JSpinner.DateEditor dateEditor = new JSpinner.DateEditor(dateSpinner, "yyyy-MM-dd HH:mm:ss");
                     dateSpinner.setEditor(dateEditor);
-                    dateSpinner.setValue(cellValue != null ? cellValue : new Date());
+
+                    if (cellValue instanceof Date) {
+                        dateSpinner.setValue(cellValue);
+                    } else if (cellValue instanceof Timestamp) {
+                        dateSpinner.setValue(new Date(((Timestamp) cellValue).getTime()));
+                    } else if (cellValue instanceof String) {
+                        try {
+                            SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+                            dateSpinner.setValue(sdf.parse((String) cellValue));
+                        } catch (ParseException e) {
+                            dateSpinner.setValue(new Date());
+                        }
+                    } else {
+                        dateSpinner.setValue(new Date());
+                    }
+
                     inputPanel.add(dateSpinner);
                     editorField = dateSpinner;
                 } else if (cellValue instanceof Boolean) {
