@@ -1,5 +1,9 @@
 package org.example;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sleepycat.je.*;
+import com.sleepycat.je.Cursor;
+
 import javax.swing.*;
 import java.awt.*;
 import java.io.*;
@@ -9,6 +13,7 @@ import java.sql.*;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 
 public class DatabaseServer extends Component {
     private Connection connection;
@@ -39,9 +44,11 @@ public class DatabaseServer extends Component {
 
             String command = (String) in.readObject();
 
+            File berkeleyDbFolder = new File("berkeley_db");
+
             switch (command) {
                 case "GET_TABLES":
-                    List<String> tableNames = getTablesFromDatabase();
+                    List<String> tableNames = getTablesFromDatabase(berkeleyDbFolder);
                     out.writeObject(tableNames);
                     break;
 
@@ -49,7 +56,9 @@ public class DatabaseServer extends Component {
                     String tableName = (String) in.readObject();
                     String orderBy = (String) in.readObject();
                     boolean isAscending = in.readBoolean();
-                    List<List<Object>> tableData = getTableDataFromDatabase(tableName, orderBy, isAscending);
+
+                    File tableFolder = new File(berkeleyDbFolder, tableName);
+                    List<List<Object>> tableData = getTableDataFromDatabase(tableFolder, orderBy, isAscending);
                     out.writeObject(tableData);
                     break;
 
@@ -108,55 +117,86 @@ public class DatabaseServer extends Component {
             out.flush();
         } catch (IOException | ClassNotFoundException | SQLException e) {
             e.printStackTrace();
+        } catch (Exception e) {
+            throw new RuntimeException(e);
         }
     }
 
-    private List<String> getTablesFromDatabase() throws SQLException {
+    private List<String> getTablesFromDatabase(File berkeleyDbFolder) {
         List<String> tableNames = new ArrayList<>();
-        DatabaseMetaData metaData = connection.getMetaData();
-        ResultSet tables = metaData.getTables(null, null, null, new String[]{"TABLE"});
-
-        while (tables.next()) {
-            tableNames.add(tables.getString("TABLE_NAME"));
+        if (berkeleyDbFolder.exists() && berkeleyDbFolder.isDirectory()) {
+            File[] tables = berkeleyDbFolder.listFiles();
+            if (tables != null) {
+                for (File table : tables) {
+                    if (table.isDirectory()) {
+                        tableNames.add(table.getName());
+                    }
+                }
+            }
         }
         return tableNames;
     }
 
-    private List<List<Object>> getTableDataFromDatabase(String tableName, String orderByColumn, boolean isAscending) throws SQLException {
-        String query = "SELECT * FROM " + tableName;
-        if (orderByColumn != null) {
-            query += " ORDER BY " + orderByColumn;
-            query += isAscending ? " ASC" : " DESC";
+    public static String singularize(String tableName) {
+        if (tableName.endsWith("s")) {
+            return tableName.substring(0, tableName.length() - 1);
         }
+        return tableName;
+    }
 
-        Statement statement = connection.createStatement();
-        ResultSet result = statement.executeQuery(query);
-        ResultSetMetaData metaData = result.getMetaData();
-        int colCount = metaData.getColumnCount();
+    private List<List<Object>> getTableDataFromDatabase(File tableFolder, String orderByColumn, boolean isAscending) throws Exception {
+        EnvironmentConfig envConfig = new EnvironmentConfig();
+        envConfig.setAllowCreate(false);
+        Environment dbEnvironment = new Environment(tableFolder, envConfig);
+
+        DatabaseConfig dbConfig = new DatabaseConfig();
+        dbConfig.setAllowCreate(false);
+        Database berkeleyDb = dbEnvironment.openDatabase(null, tableFolder.getName(), dbConfig);
 
         List<List<Object>> tableData = new ArrayList<>();
+        ObjectMapper mapper = new ObjectMapper();
 
-        List<Object> headers = new ArrayList<>();
-        for (int i = 1; i <= colCount; i++) {
-            headers.add(metaData.getColumnName(i));
-        }
-        tableData.add(headers);
+        String primaryKeyField = singularize(tableFolder.getName()) + "_id";
 
-        // Добавляем строки данных
-        while (result.next()) {
-            List<Object> row = new ArrayList<>();
-            for (int i = 1; i <= colCount; i++) {
-                Object value = result.getObject(i);
+        try (Cursor cursor = berkeleyDb.openCursor(null, null)) {
+            DatabaseEntry keyEntry = new DatabaseEntry();
+            DatabaseEntry valueEntry = new DatabaseEntry();
 
-                // Преобразуем массив в List<String>, если это PgArray
-                if (value instanceof Array) {
-                    Object[] array = (Object[]) ((Array) value).getArray();
-                    row.add(Arrays.asList(array)); // Конвертируем массив в List
-                } else {
-                    row.add(value);
+            boolean headersAdded = false;
+
+            while (cursor.getNext(keyEntry, valueEntry, LockMode.DEFAULT) == OperationStatus.SUCCESS) {
+                String key = new String(keyEntry.getData());
+                String value = new String(valueEntry.getData());
+
+                Map<String, Object> row = mapper.readValue(value, Map.class);
+
+                if (!headersAdded) {
+                    List<Object> headers = new ArrayList<>(row.keySet());
+                    if (!headers.contains(primaryKeyField)) {
+                        headers.add(0, primaryKeyField);
+                    }
+                    tableData.add(headers);
+                    headersAdded = true;
                 }
+
+                List<Object> rowData = new ArrayList<>(row.values());
+                rowData.add(0, key);
+                tableData.add(rowData);
             }
-            tableData.add(row);
+        }
+
+        berkeleyDb.close();
+        dbEnvironment.close();
+
+        if (orderByColumn != null) {
+            int columnIndex = tableData.get(0).indexOf(orderByColumn);
+            if (columnIndex >= 0) {
+                tableData.subList(1, tableData.size()).sort((row1, row2) -> {
+                    Comparable<Object> val1 = (Comparable<Object>) row1.get(columnIndex);
+                    Comparable<Object> val2 = (Comparable<Object>) row2.get(columnIndex);
+                    return isAscending ? val1.compareTo(val2) : val2.compareTo(val1);
+                });
+            }
         }
 
         return tableData;

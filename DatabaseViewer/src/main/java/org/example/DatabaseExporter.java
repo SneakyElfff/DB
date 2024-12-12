@@ -54,7 +54,7 @@ public class DatabaseExporter {
                 dbConfig.setAllowCreate(true);
                 Database berkeleyDb = dbEnvironment.openDatabase(null, table, dbConfig);
 
-                saveToBerkeleyDB(berkeleyDb, tableData, primaryKey, mapper);
+                saveToBerkeleyDB(berkeleyDb, tableData, primaryKey, table, mapper);
 
                 berkeleyDb.close();
                 dbEnvironment.close();
@@ -161,8 +161,17 @@ public class DatabaseExporter {
         return tableData;
     }
 
-    public static void saveToBerkeleyDB(Database db, List<Map<String, Object>> tableData, String primaryKey, ObjectMapper mapper) {
+    public static String singularize(String tableName) {
+        if (tableName.endsWith("s")) {
+            return tableName.substring(0, tableName.length() - 1);
+        }
+        return tableName;
+    }
+
+    public static void saveToBerkeleyDB(Database db, List<Map<String, Object>> tableData, String primaryKey, String tableName, ObjectMapper mapper) {
         try {
+            String primaryKeyField = singularize(tableName) + "_id";
+
             for (Map<String, Object> row : tableData) {
                 Object primaryKeyValue = row.get(primaryKey);
                 if (primaryKeyValue == null) {
@@ -171,6 +180,7 @@ public class DatabaseExporter {
                 }
 
                 String key = primaryKeyValue.toString();
+                row.put(primaryKeyField, primaryKeyValue);
                 row.remove(primaryKey);
                 String jsonValue = mapper.writeValueAsString(row);
 
