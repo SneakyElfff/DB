@@ -1,40 +1,62 @@
 package org.example;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sleepycat.je.*;
 
 import java.io.File;
 import java.sql.*;
+import java.text.SimpleDateFormat;
 import java.util.*;
 
 public class DatabaseExporter {
     public static void main(String[] args) {
         String url = "jdbc:postgresql://localhost:5432/Travel+agency?user=nina";
 
+        File berkeleyDbFolder = new File("berkeley_db");
+        if (!berkeleyDbFolder.exists()) {
+            berkeleyDbFolder.mkdir();
+        }
+
         try (Connection conn = DriverManager.getConnection(url)) {
             System.out.println("Connected to PostgreSQL database successfully");
 
-            List<Map<String, Object>> schema = extractSchema(conn);
+//            List<Map<String, Object>> schema = extractSchema(conn);
 
             List<String> tables = getTables(conn);
-            Map<String, List<Map<String, Object>>> data = new HashMap<>();
-            for (String table : tables) {
-                data.put(table, fetchTableData(conn, table));
-            }
-
-            Map<String, Object> output = new HashMap<>();
-            output.put("schema", schema);
-            output.put("data", data);
 
             ObjectMapper mapper = new ObjectMapper();
-            String jsonOutput = mapper.writerWithDefaultPrettyPrinter().writeValueAsString(output);
-            System.out.println(jsonOutput);
 
-            mapper.writeValue(new java.io.File("db_dump.json"), output);
-            System.out.println("Database schema and data exported to db_dump.json");
+            for (String table : tables) {
+                System.out.println("Processing table: " + table);
 
-            Map<String, Object> deserializedData = deserializeFromJson("db_dump.json", mapper);
-            System.out.println("Deserialized data:");
-            System.out.println(deserializedData);
+                String primaryKey = getPrimaryKey(conn, table);
+                if (primaryKey == null) {
+                    System.out.println("Skipping table " + table + " (no primary key found)");
+                    continue;
+                }
+
+                List<Map<String, Object>> tableData = fetchTableData(conn, table);
+
+                File dbFolder = new File(berkeleyDbFolder, table);
+                if (!dbFolder.exists()) {
+                    dbFolder.mkdir();
+                }
+
+                EnvironmentConfig envConfig = new EnvironmentConfig();
+                envConfig.setAllowCreate(true);
+                Environment dbEnvironment = new Environment(dbFolder, envConfig);
+
+                DatabaseConfig dbConfig = new DatabaseConfig();
+                dbConfig.setAllowCreate(true);
+                Database berkeleyDb = dbEnvironment.openDatabase(null, table, dbConfig);
+
+                saveToBerkeleyDB(berkeleyDb, tableData, primaryKey, mapper);
+
+                berkeleyDb.close();
+                dbEnvironment.close();
+            }
+
+            System.out.println("Data exported to Berkeley DB successfully!");
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -79,9 +101,31 @@ public class DatabaseExporter {
         return tables;
     }
 
+    public static String getPrimaryKey(Connection conn, String tableName) throws SQLException {
+        String query = """
+        SELECT kcu.column_name
+        FROM information_schema.table_constraints tc
+        JOIN information_schema.key_column_usage kcu
+          ON tc.constraint_name = kcu.constraint_name
+        WHERE tc.constraint_type = 'PRIMARY KEY'
+          AND tc.table_name = ?
+        """;
+
+        try (PreparedStatement stmt = conn.prepareStatement(query)) {
+            stmt.setString(1, tableName);
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getString("column_name");
+                }
+            }
+        }
+        return null;
+    }
+
     public static List<Map<String, Object>> fetchTableData(Connection conn, String tableName) throws SQLException {
         String query = "SELECT * FROM " + tableName;
         List<Map<String, Object>> tableData = new ArrayList<>();
+        SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
 
         try (PreparedStatement stmt = conn.prepareStatement(query);
              ResultSet rs = stmt.executeQuery()) {
@@ -98,12 +142,42 @@ public class DatabaseExporter {
                         value = Arrays.asList((Object[]) ((java.sql.Array) value).getArray());
                     }
 
+                    // Convert Timestamp or Date to formatted String
+                    if (value instanceof Timestamp) {
+                        value = dateFormat.format((Timestamp) value);
+                    } else if (value instanceof java.sql.Date) {
+                        value = dateFormat.format((java.sql.Date) value);
+                    }
+
                     row.put(metaData.getColumnName(i), value);
                 }
                 tableData.add(row);
             }
         }
         return tableData;
+    }
+
+    public static void saveToBerkeleyDB(Database db, List<Map<String, Object>> tableData, String primaryKey, ObjectMapper mapper) {
+        try {
+            for (Map<String, Object> row : tableData) {
+                Object primaryKeyValue = row.get(primaryKey);
+                if (primaryKeyValue == null) {
+                    System.out.println("Skipping row without primary key value");
+                    continue;
+                }
+
+                String key = primaryKeyValue.toString();
+                row.remove(primaryKey);
+                String jsonValue = mapper.writeValueAsString(row);
+
+                DatabaseEntry keyEntry = new DatabaseEntry(key.getBytes());
+                DatabaseEntry valueEntry = new DatabaseEntry(jsonValue.getBytes());
+
+                db.put(null, keyEntry, valueEntry);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 
     public static Map<String, Object> deserializeFromJson(String filePath, ObjectMapper mapper) {
