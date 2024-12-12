@@ -64,6 +64,11 @@ public class DatabaseServer extends Component {
                     boolean isAscending = in.readBoolean();
 
                     File tableFolder = new File(berkeleyDbFolder, tableName);
+                    if (!tableFolder.exists() || !tableFolder.isDirectory()) {
+                        out.writeObject("TABLE_NOT_FOUND");
+                        break;
+                    }
+
                     List<List<Object>> tableData = getTableDataFromDatabase(tableFolder, orderBy, isAscending);
                     out.writeObject(tableData);
                     break;
@@ -71,16 +76,35 @@ public class DatabaseServer extends Component {
                 case "ADD_ROW":
                     tableName = (String) in.readObject();
                     Map<String, Object> rowData = (Map<String, Object>) in.readObject();
+
                     tableFolder = new File(berkeleyDbFolder, tableName);
+                    if (!tableFolder.exists() || !tableFolder.isDirectory()) {
+                        out.writeObject("TABLE_NOT_FOUND");
+                        break;
+                    }
+
                     boolean success = addRowToDatabase(tableFolder, rowData);
                     out.writeObject(success ? "SUCCESS" : "FAILURE");
                     break;
 
                 case "DELETE_ROW":
-                    tableName = (String) in.readObject(); // Получаем имя таблицы
-                    Object keyValue = in.readObject();    // Получаем значение первичного ключа
-                    boolean deleteSuccess = deleteRowFromDatabase(tableName, keyValue);
-                    out.writeObject(deleteSuccess ? "SUCCESS" : "FAILURE");
+                    Object keyValue;
+                    try {
+                        tableName = (String) in.readObject();
+                        keyValue = in.readObject();
+
+                        tableFolder = new File(berkeleyDbFolder, tableName);
+                        if (!tableFolder.exists() || !tableFolder.isDirectory()) {
+                            out.writeObject("TABLE_NOT_FOUND");
+                            break;
+                        }
+
+                        boolean deleteSuccess = deleteRowFromDatabase(tableFolder, keyValue);
+                        out.writeObject(deleteSuccess ? "SUCCESS" : "FAILURE");
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                        out.writeObject("ERROR");
+                    }
                     break;
 
                 case "UPDATE_ROW":
@@ -250,28 +274,26 @@ public class DatabaseServer extends Component {
         }
     }
 
-    private boolean deleteRowFromDatabase(String tableName, Object keyValue) {
+    private boolean deleteRowFromDatabase(File tableFolder, Object keyValue) {
         try {
-            // Получаем имя столбца первичного ключа
-            String keyColumn = "";
-            DatabaseMetaData dbMetaData = connection.getMetaData();
-            try (ResultSet rs = dbMetaData.getPrimaryKeys(null, null, tableName)) {
-                if (rs.next()) {
-                    keyColumn = rs.getString("COLUMN_NAME");
-                }
-            }
+            EnvironmentConfig envConfig = new EnvironmentConfig();
+            envConfig.setAllowCreate(false);
+            Environment dbEnvironment = new Environment(tableFolder, envConfig);
 
-            if (keyColumn.isEmpty()) {
-                throw new SQLException("Primary key column not found for table " + tableName);
-            }
+            DatabaseConfig dbConfig = new DatabaseConfig();
+            dbConfig.setAllowCreate(false);
+            Database berkeleyDb = dbEnvironment.openDatabase(null, tableFolder.getName(), dbConfig);
 
-            // Подготовка параметризованного запроса
-            String query = "DELETE FROM " + tableName + " WHERE " + keyColumn + " = ?";
-            try (PreparedStatement stmt = connection.prepareStatement(query)) {
-                stmt.setObject(1, keyValue);
-                return stmt.executeUpdate() > 0; // Возвращаем true, если строка была удалена
-            }
-        } catch (SQLException e) {
+            DatabaseEntry keyEntry = new DatabaseEntry(keyValue.toString().getBytes(StandardCharsets.UTF_8));
+
+            OperationStatus status = berkeleyDb.delete(null, keyEntry);
+
+            berkeleyDb.close();
+            dbEnvironment.close();
+
+            return status == OperationStatus.SUCCESS;
+
+        } catch (Exception e) {
             e.printStackTrace();
             return false;
         }
