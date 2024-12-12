@@ -1,6 +1,11 @@
 package org.example;
 
+import com.fasterxml.jackson.core.JsonGenerator;
+import com.fasterxml.jackson.databind.JsonSerializer;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.databind.SerializerProvider;
+import com.fasterxml.jackson.databind.module.SimpleModule;
 import com.sleepycat.je.*;
 import com.sleepycat.je.Cursor;
 
@@ -9,11 +14,12 @@ import java.awt.*;
 import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.nio.charset.StandardCharsets;
 import java.sql.*;
-import java.util.ArrayList;
-import java.util.Arrays;
+import java.text.SimpleDateFormat;
+import java.util.*;
+import java.util.Date;
 import java.util.List;
-import java.util.Map;
 
 public class DatabaseServer extends Component {
     private Connection connection;
@@ -64,8 +70,9 @@ public class DatabaseServer extends Component {
 
                 case "ADD_ROW":
                     tableName = (String) in.readObject();
-                    List<Object> rowData = (List<Object>) in.readObject();
-                    boolean success = addRowToDatabase(tableName, rowData);
+                    Map<String, Object> rowData = (Map<String, Object>) in.readObject();
+                    tableFolder = new File(berkeleyDbFolder, tableName);
+                    boolean success = addRowToDatabase(tableFolder, rowData);
                     out.writeObject(success ? "SUCCESS" : "FAILURE");
                     break;
 
@@ -202,97 +209,42 @@ public class DatabaseServer extends Component {
         return tableData;
     }
 
-    private boolean addRowToDatabase(String tableName, List<Object> rowData) {
+    private boolean addRowToDatabase(File tableFolder, Map<String, Object> rowData) {
         try {
-            String columnQuery = "SELECT * FROM " + tableName + " LIMIT 1";
-            Statement statement = connection.createStatement();
-            ResultSet resultSet = statement.executeQuery(columnQuery);
-            ResultSetMetaData metaData = resultSet.getMetaData();
-            int columnCount = metaData.getColumnCount();
+            String primaryKey = generatePrimaryKey(tableFolder.getName());
 
-            DatabaseMetaData dbMetaData = connection.getMetaData();
-            ResultSet pkResultSet = dbMetaData.getPrimaryKeys(null, null, tableName);
-            List<String> primaryKeys = new ArrayList<>();
-            while (pkResultSet.next()) {
-                primaryKeys.add(pkResultSet.getString("COLUMN_NAME"));
-            }
-            pkResultSet.close();
+            ObjectMapper mapper = new ObjectMapper();
+            mapper.registerModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule());
+            mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
 
-            StringBuilder query = new StringBuilder("INSERT INTO " + tableName + " (");
-            List<Integer> nonPrimaryKeyIndexes = new ArrayList<>();
-            for (int i = 1; i <= columnCount; i++) {
-                String columnName = metaData.getColumnName(i);
-                if (!primaryKeys.contains(columnName)) {
-                    query.append(columnName).append(", ");
-                    nonPrimaryKeyIndexes.add(i - 1);
+            SimpleModule dateModule = new SimpleModule();
+            dateModule.addSerializer(java.util.Date.class, new JsonSerializer<Date>() {
+                @Override
+                public void serialize(Date value, JsonGenerator gen, SerializerProvider serializers) throws IOException {
+                    String formattedDate = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(value);
+                    gen.writeString(formattedDate);
                 }
-            }
+            });
+            mapper.registerModule(dateModule);
 
-            query.setLength(query.length() - 2);
-            query.append(") VALUES (");
-            for (int i = 0; i < nonPrimaryKeyIndexes.size(); i++) {
-                query.append("?");
-                if (i < nonPrimaryKeyIndexes.size() - 1) {
-                    query.append(", ");
-                }
-            }
-            query.append(")");
+            String serializedData = mapper.writeValueAsString(rowData);
 
-            PreparedStatement preparedStatement = connection.prepareStatement(query.toString(), Statement.RETURN_GENERATED_KEYS);
-            for (int i = 0; i < nonPrimaryKeyIndexes.size(); i++) {
-                int columnIndex = nonPrimaryKeyIndexes.get(i);
-                int columnType = metaData.getColumnType(columnIndex + 1);
-                Object value = rowData.get(i);
+            EnvironmentConfig envConfig = new EnvironmentConfig();
+            envConfig.setAllowCreate(false);
+            Environment dbEnvironment = new Environment(tableFolder, envConfig);
 
-                if (columnType == Types.INTEGER) {
-                    preparedStatement.setInt(i + 1, Integer.parseInt(value.toString()));
-                } else if (columnType == Types.DOUBLE) {
-                    preparedStatement.setDouble(i + 1, Double.parseDouble(value.toString()));
-                } else if (columnType == Types.BOOLEAN) {
-                    preparedStatement.setBoolean(i + 1, Boolean.parseBoolean(value.toString()));
-                } else if (columnType == Types.ARRAY) {
-                    if (value instanceof String) {
-                        String stringValue = (String) value;
-                        stringValue = stringValue.replaceAll("[{}]", "");
-                        String[] arrayValue = stringValue.split(",");
-                        Array array = connection.createArrayOf("varchar", arrayValue);
-                        preparedStatement.setArray(i + 1, array);
-                    } else {
-                        String[] arrayValue = ((List<String>) value).toArray(new String[0]);
-                        Array array = connection.createArrayOf("varchar", arrayValue);
-                        preparedStatement.setArray(i + 1, array);
-                    }
-                } else {
-                    preparedStatement.setObject(i + 1, value);
-                }
-            }
+            DatabaseConfig dbConfig = new DatabaseConfig();
+            dbConfig.setAllowCreate(false);
+            Database berkeleyDb = dbEnvironment.openDatabase(null, tableFolder.getName(), dbConfig);
 
-            // Выполнение запроса для вставки строки
-            preparedStatement.executeUpdate();
+            DatabaseEntry keyEntry = new DatabaseEntry(primaryKey.getBytes(StandardCharsets.UTF_8));
+            DatabaseEntry valueEntry = new DatabaseEntry(serializedData.getBytes(StandardCharsets.UTF_8));
+            berkeleyDb.put(null, keyEntry, valueEntry);
 
-            // Получение сгенерированного ID для tour_id (если автоинкремент)
-            ResultSet generatedKeys = preparedStatement.getGeneratedKeys();
-            if (generatedKeys.next()) {
-                Object tourId = rowData.get(0); // Первый элемент в rowData — это tour_id
-                // Предполагается, что excursion_id уже есть в rowData
-                Object excursionId = rowData.get(rowData.size() - 1); // Последний элемент в rowData — это excursion_id
-
-                // Добавляем строку в таблицу leisure
-                String leisureQuery = "INSERT INTO leisure (tour_id, excursion_id) VALUES (?, ?)";
-                try (PreparedStatement leisureStatement = connection.prepareStatement(leisureQuery)) {
-                    leisureStatement.setObject(1, tourId);
-                    leisureStatement.setObject(2, excursionId);
-                    leisureStatement.executeUpdate();
-                }
-            }
-
+            berkeleyDb.close();
+            dbEnvironment.close();
             return true;
-        } catch (SQLException e) {
-            System.err.println("SQL Error: " + e.getMessage());
-            e.printStackTrace();
-            return false;
-        } catch (NumberFormatException e) {
-            System.err.println("Invalid data format: " + e.getMessage());
+        } catch (Exception e) {
             e.printStackTrace();
             return false;
         }
@@ -498,6 +450,34 @@ public class DatabaseServer extends Component {
         } catch (IllegalArgumentException e) {
             return false;
         }
+    }
+
+    private synchronized String generatePrimaryKey(String tableName) throws IOException {
+        File keyFile = new File("primary_keys.txt");
+        Map<String, Long> keyMap = new HashMap<>();
+
+        if (keyFile.exists()) {
+            try (BufferedReader reader = new BufferedReader(new FileReader(keyFile))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    String[] parts = line.split(":");
+                    keyMap.put(parts[0], Long.parseLong(parts[1].trim()));
+                }
+            }
+        }
+
+        String keyName = singularize(tableName) + "_id";
+        long nextId = keyMap.getOrDefault(keyName, 0L) + 1;
+        keyMap.put(keyName, nextId);
+
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter(keyFile))) {
+            for (Map.Entry<String, Long> entry : keyMap.entrySet()) {
+                writer.write(entry.getKey() + ":" + entry.getValue());
+                writer.newLine();
+            }
+        }
+
+        return String.valueOf(nextId);
     }
 
     public static void main(String[] args) {

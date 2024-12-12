@@ -1,0 +1,5 @@
+accommodation_id: 63
+client_id: 132
+excursion_id: 131
+tour_booking_id: 30
+tour_id: 1030

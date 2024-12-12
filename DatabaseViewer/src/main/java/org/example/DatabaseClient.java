@@ -367,16 +367,16 @@ public class DatabaseClient extends JFrame {
                 JSpinner.DateEditor dateEditor = new JSpinner.DateEditor(dateSpinner, "yyyy-MM-dd HH:mm:ss");
                 dateSpinner.setEditor(dateEditor);
                 inputPanel.add(dateSpinner);
-                fields[i] = dateSpinner; // Store the spinner reference
+                fields[i] = dateSpinner;
             } else {
                 if (columnName.toLowerCase().startsWith("is_")) {
                     JCheckBox checkBox = new JCheckBox();
                     inputPanel.add(checkBox);
-                    fields[i] = checkBox; // Store checkbox reference
+                    fields[i] = checkBox;
                 } else {
                     JTextField textField = new JTextField();
                     inputPanel.add(textField);
-                    fields[i] = textField; // Store text field reference
+                    fields[i] = textField;
                 }
             }
         }
@@ -417,19 +417,23 @@ public class DatabaseClient extends JFrame {
 
         int result = (int) optionPane.getValue();
         if (result == JOptionPane.OK_OPTION) {
-            Vector<Object> rowData = new Vector<>();
-            for (Object field : fields) {
+            Map<String, Object> rowData = new HashMap<>();
+            for (int i = 0; i < fields.length; i++) {
+                Object field = fields[i];
+                String columnName = allColumns.get(i);
+
                 if (field instanceof JTextField) {
-                    rowData.add(((JTextField) field).getText());
+                    rowData.put(columnName, ((JTextField) field).getText());
                 } else if (field instanceof JCheckBox) {
-                    rowData.add(((JCheckBox) field).isSelected());
+                    rowData.put(columnName, ((JCheckBox) field).isSelected());
                 } else if (field instanceof JSpinner) {
                     Date selectedDate = (Date) ((JSpinner) field).getValue();
-                    rowData.add(new Timestamp(selectedDate.getTime()));
+                    rowData.put(columnName, new Timestamp(selectedDate.getTime()));
                 } else if (field instanceof JComboBox) {
-                    rowData.add(((JComboBox<?>) field).getSelectedItem());
+                    rowData.put(columnName, ((JComboBox<?>) field).getSelectedItem());
                 }
             }
+
             if (!sendNewRowToServer(tableName, rowData)) {
                 JOptionPane.showMessageDialog(this, "Failed to add a new row.", "Error", JOptionPane.ERROR_MESSAGE);
             }
@@ -458,7 +462,7 @@ public class DatabaseClient extends JFrame {
         return primaryKeyValues;
     }
 
-    private boolean sendNewRowToServer(String tableName, Vector<Object> rowData) {
+    private boolean sendNewRowToServer(String tableName, Map<String, Object> rowData) {
         try (Socket socket = new Socket("localhost", 8080);
              ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
              ObjectInputStream in = new ObjectInputStream(socket.getInputStream())) {
