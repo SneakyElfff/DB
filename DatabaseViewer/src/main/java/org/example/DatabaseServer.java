@@ -16,6 +16,7 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.sql.*;
+import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.Date;
@@ -334,6 +335,11 @@ public class DatabaseServer extends Component {
                 berkeleyDb.close();
                 dbEnvironment.close();
                 return false;
+            }
+
+            if (newValue instanceof Date) {
+                SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+                newValue = dateFormat.format((Date) newValue);
             }
 
             rowData.put(columnName, newValue);
