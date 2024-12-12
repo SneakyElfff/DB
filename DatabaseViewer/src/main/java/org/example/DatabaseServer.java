@@ -124,29 +124,18 @@ public class DatabaseServer extends Component {
                     out.writeObject(updateSuccess ? "SUCCESS" : "FAILURE");
                     break;
 
-                case "SEARCH_ROWS":
-                    String searchTable = (String) in.readObject();  // Имя таблицы
-                    String searchColumn = (String) in.readObject(); // Имя столбца для поиска
-                    String searchValue = (String) in.readObject();  // Значение для поиска
-                    List<List<Object>> searchResults = searchInDatabase(searchTable, searchColumn, searchValue);
-                    out.writeObject(searchResults);
-                    break;
-
                 case "GET_PRIMARY_KEY_VALUES":
                     String keyColumn = (String) in.readObject();
                     tableName = (String) in.readObject();
-                    List<Object> primaryKeyValues = getPrimaryKeyValues(tableName, keyColumn);
+
+                    tableFolder = new File(berkeleyDbFolder, tableName);
+                    if (!tableFolder.exists() || !tableFolder.isDirectory()) {
+                        out.writeObject("TABLE_NOT_FOUND");
+                        break;
+                    }
+
+                    List<Object> primaryKeyValues = getPrimaryKeyValues(tableFolder);
                     out.writeObject(primaryKeyValues);
-                    break;
-
-                case "EXECUTE_SQL":
-                    List<String> sqlCommands = (List<String>) in.readObject(); // Получаем список SQL-команд
-                    StringBuilder resultMessage = new StringBuilder();
-                    success = executeSQLQueries(sqlCommands, resultMessage);
-
-                    out.writeBoolean(success);
-                    out.writeObject(resultMessage.toString());
-                    out.flush();
                     break;
 
                 // Другие команды, если необходимо
@@ -364,136 +353,38 @@ public class DatabaseServer extends Component {
         }
     }
 
-    private List<List<Object>> searchInDatabase(String tableName, String columnName, String searchValue) throws SQLException {
-        String query;
-        PreparedStatement preparedStatement;
-
-        if (isInteger(searchValue)) {
-            // Поиск по числовому значению
-            query = "SELECT * FROM " + tableName + " WHERE " + columnName + " = ?";
-            preparedStatement = connection.prepareStatement(query);
-            preparedStatement.setInt(1, Integer.parseInt(searchValue));
-        } else if ("true".equalsIgnoreCase(searchValue) || "false".equalsIgnoreCase(searchValue)) {
-            // Поиск по значению boolean
-            query = "SELECT * FROM " + tableName + " WHERE " + columnName + " = ?";
-            preparedStatement = connection.prepareStatement(query);
-            preparedStatement.setBoolean(1, Boolean.parseBoolean(searchValue));
-        } else if (isTimestamp(searchValue)) {
-            // Поиск по значению даты и времени
-            query = "SELECT * FROM " + tableName + " WHERE " + columnName + " = ?";
-            preparedStatement = connection.prepareStatement(query);
-            preparedStatement.setTimestamp(1, Timestamp.valueOf(searchValue));
-        } else if (isArrayColumn(tableName, columnName)) {
-            // Поиск в массиве, если поле типа array
-            searchValue = "{\"" + searchValue.replaceAll(", ", "\", \"") + "\"}"; // преобразование в формат массива
-            query = "SELECT * FROM " + tableName + " WHERE " + columnName + " && ?";
-            preparedStatement = connection.prepareStatement(query);
-            preparedStatement.setObject(1, searchValue, Types.OTHER);
-        } else {
-            // Поиск по строковому значению
-            query = "SELECT * FROM " + tableName + " WHERE " + columnName + " LIKE ?";
-            preparedStatement = connection.prepareStatement(query);
-            preparedStatement.setString(1, "%" + searchValue + "%");
-        }
-
-        ResultSet result = preparedStatement.executeQuery();
-        ResultSetMetaData metaData = result.getMetaData();
-        int colCount = metaData.getColumnCount();
-        List<List<Object>> results = new ArrayList<>();
-
-        // Заголовки
-        List<Object> headers = new ArrayList<>();
-        for (int i = 1; i <= colCount; i++) {
-            headers.add(metaData.getColumnName(i));
-        }
-        results.add(headers);
-
-        // Данные строк
-        while (result.next()) {
-            List<Object> row = new ArrayList<>();
-            for (int i = 1; i <= colCount; i++) {
-                Object value = result.getObject(i);
-                if (value instanceof Array) {
-                    Object[] array = (Object[]) ((Array) value).getArray();
-                    row.add(Arrays.asList(array));
-                } else {
-                    row.add(value);
-                }
-            }
-            results.add(row);
-        }
-        return results;
-    }
-
-    private List<Object> getPrimaryKeyValues(String tableName, String keyColumn) throws SQLException {
+    private List<Object> getPrimaryKeyValues(File tableFolder) {
         List<Object> primaryKeyValues = new ArrayList<>();
-        String query = "SELECT " + keyColumn + " FROM " + tableName;
-        try (Statement stmt = connection.createStatement();
-             ResultSet rs = stmt.executeQuery(query)) {
-            while (rs.next()) {
-                primaryKeyValues.add(rs.getObject(keyColumn));
+
+        try {
+            EnvironmentConfig envConfig = new EnvironmentConfig();
+            envConfig.setAllowCreate(false);
+            Environment dbEnvironment = new Environment(tableFolder, envConfig);
+
+            DatabaseConfig dbConfig = new DatabaseConfig();
+            dbConfig.setAllowCreate(false);
+            Database berkeleyDb = dbEnvironment.openDatabase(null, tableFolder.getName(), dbConfig);
+
+            CursorConfig cursorConfig = new CursorConfig();
+            Cursor cursor = berkeleyDb.openCursor(null, cursorConfig);
+
+            DatabaseEntry keyEntry = new DatabaseEntry();
+            DatabaseEntry valueEntry = new DatabaseEntry();
+
+            while (cursor.getNext(keyEntry, valueEntry, LockMode.DEFAULT) == OperationStatus.SUCCESS) {
+                String key = new String(keyEntry.getData(), StandardCharsets.UTF_8);
+                primaryKeyValues.add(key);
             }
+
+            cursor.close();
+            berkeleyDb.close();
+            dbEnvironment.close();
+
+        } catch (Exception e) {
+            e.printStackTrace();
         }
+
         return primaryKeyValues;
-    }
-
-    private boolean executeSQLQueries(List<String> sqlCommands, StringBuilder resultMessage) {
-        boolean allSuccess = true;
-        int successfulCount = 0;
-        int totalCommands = 0;
-
-        for (String sql : sqlCommands) {
-            if (sql.trim().isEmpty()) {
-                continue; // Пропускаем пустые строки
-            }
-            totalCommands++;
-
-            try (Statement stmt = connection.createStatement()) {
-                stmt.execute(sql.trim() + ";"); // Выполнение SQL-команды
-                successfulCount++;
-            } catch (SQLException e) {
-                e.printStackTrace();
-                resultMessage.append("Error executing command: ").append(sql).append("\n")
-                        .append("Error: ").append(e.getMessage()).append("\n");
-                allSuccess = false;
-            }
-        }
-
-        resultMessage.append("Executed successfully: ")
-                .append(successfulCount).append("/").append(totalCommands).append(" commands.\n");
-
-        return allSuccess;
-    }
-
-    // Дополнительный метод для проверки типа колонки как массива
-    private boolean isArrayColumn(String tableName, String columnName) throws SQLException {
-        DatabaseMetaData metaData = connection.getMetaData();
-        try (ResultSet columns = metaData.getColumns(null, null, tableName, columnName)) {
-            if (columns.next()) {
-                String columnType = columns.getString("TYPE_NAME");
-                return columnType.startsWith("_"); // Проверка на массив
-            }
-        }
-        return false;
-    }
-
-    private boolean isInteger(String str) {
-        try {
-            Integer.parseInt(str);
-            return true;
-        }
-        catch (NumberFormatException e) {
-            return false;
-        }
-    }
-
-    private boolean isTimestamp(String value) {
-        try {
-            Timestamp.valueOf(value); // Проверяет формат YYYY-MM-DD HH:MM:SS.S
-            return true;
-        } catch (IllegalArgumentException e) {
-            return false;
-        }
     }
 
     private synchronized String generatePrimaryKey(String tableName) throws IOException {
