@@ -20,11 +20,15 @@ public class DatabaseExporter {
         try (Connection conn = DriverManager.getConnection(url)) {
             System.out.println("Connected to PostgreSQL database successfully");
 
-//            List<Map<String, Object>> schema = extractSchema(conn);
-
-            List<String> tables = getTables(conn);
+            List<Map<String, Object>> schema = extractSchema(conn);
 
             ObjectMapper mapper = new ObjectMapper();
+            File schemaFile = new File("schema.json");
+            mapper.writeValue(schemaFile, schema);
+
+            System.out.println("Database schema exported to schema.json");
+
+            List<String> tables = getTables(conn);
 
             for (String table : tables) {
                 System.out.println("Processing table: " + table);
@@ -177,15 +181,6 @@ public class DatabaseExporter {
             }
         } catch (Exception e) {
             e.printStackTrace();
-        }
-    }
-
-    public static Map<String, Object> deserializeFromJson(String filePath, ObjectMapper mapper) {
-        try {
-            return mapper.readValue(new File(filePath), Map.class);
-        } catch (Exception e) {
-            e.printStackTrace();
-            return null;
         }
     }
 }
