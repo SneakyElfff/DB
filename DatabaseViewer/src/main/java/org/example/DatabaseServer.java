@@ -1,6 +1,7 @@
 package org.example;
 
 import com.fasterxml.jackson.core.JsonGenerator;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonSerializer;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
@@ -100,7 +101,7 @@ public class DatabaseServer extends Component {
                             break;
                         }
 
-                        boolean deleteSuccess = deleteRowFromDatabase(tableFolder, keyValue);
+                        boolean deleteSuccess = deleteRowWithCascade(tableFolder, keyValue);
                         out.writeObject(deleteSuccess ? "SUCCESS" : "FAILURE");
                     } catch (Exception e) {
                         e.printStackTrace();
@@ -289,6 +290,77 @@ public class DatabaseServer extends Component {
 
             return status == OperationStatus.SUCCESS;
 
+        } catch (Exception e) {
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+    private Map<String, String> getForeignKeyReferences(String tableName) {
+        Map<String, String> references = new HashMap<>();
+        if ("clients".equals(tableName)) {
+            references.put("tour_bookings", "client_id");
+        }
+        if ("accommodations".equals(tableName)) {
+            references.put("tours", "accommodation_id");
+        }
+        if ("excursions".equals(tableName)) {
+            references.put("tours", "excursion_id");
+        }
+        if ("tours".equals(tableName)) {
+            references.put("tour_bookings", "tour_id");
+        }
+        return references;
+    }
+
+    private boolean deleteRowWithCascade(File tableFolder, Object keyValue) {
+        try {
+            boolean success = deleteRowFromDatabase(tableFolder, keyValue);
+            if (!success) return false;
+
+            String tableName = tableFolder.getName();
+            Map<String, String> foreignKeyReferences = getForeignKeyReferences(tableName);
+
+            if (foreignKeyReferences.isEmpty()) {
+                System.out.println("No related tables found for table: " + tableName);
+                return true;
+            }
+
+            for (Map.Entry<String, String> entry : foreignKeyReferences.entrySet()) {
+                String relatedTableName = entry.getKey();
+                String foreignKeyColumn = entry.getValue();
+
+                File relatedTableFolder = new File("berkeley_db/" + relatedTableName);
+
+                EnvironmentConfig envConfig = new EnvironmentConfig();
+                envConfig.setAllowCreate(false);
+                Environment dbEnvironment = new Environment(relatedTableFolder, envConfig);
+
+                DatabaseConfig dbConfig = new DatabaseConfig();
+                dbConfig.setAllowCreate(false);
+                Database relatedDb = dbEnvironment.openDatabase(null, relatedTableName, dbConfig);
+
+                Cursor cursor = relatedDb.openCursor(null, null);
+                DatabaseEntry keyEntry = new DatabaseEntry();
+                DatabaseEntry valueEntry = new DatabaseEntry();
+
+                while (cursor.getNext(keyEntry, valueEntry, LockMode.DEFAULT) == OperationStatus.SUCCESS) {
+                    String jsonData = new String(valueEntry.getData(), StandardCharsets.UTF_8);
+
+                    ObjectMapper mapper = new ObjectMapper();
+                    Map<String, Object> rowData = mapper.readValue(jsonData, new TypeReference<>() {});
+
+                    if (keyValue.toString().equals(rowData.get(foreignKeyColumn).toString())) {
+                        relatedDb.delete(null, keyEntry);
+                    }
+                }
+
+                cursor.close();
+                relatedDb.close();
+                dbEnvironment.close();
+            }
+
+            return true;
         } catch (Exception e) {
             e.printStackTrace();
             return false;
